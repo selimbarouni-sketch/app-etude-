@@ -1,0 +1,6 @@
+{
+  "name": "ProfSuivi",
+  "description": "Gestion de cours particuliers pour professeurs : élèves, séances, rendez-vous, paiements et notes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
