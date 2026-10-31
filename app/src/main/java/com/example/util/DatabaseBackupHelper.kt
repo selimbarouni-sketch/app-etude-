@@ -2,49 +2,35 @@ package com.example.util
 
 import android.content.Context
 import android.widget.Toast
+import com.example.data.local.AppDatabase
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
 object DatabaseBackupHelper {
 
+    /**
+     * Copie la base SQLite dans un fichier de sauvegarde.
+     * Correction : Room utilise le mode WAL ; sans "checkpoint", les dernières
+     * modifications restaient dans le fichier -wal et n'étaient pas sauvegardées.
+     */
     fun exportDatabase(context: Context): File? {
-        val dbFile = context.getDatabasePath("prof_suivi_db")
+        val dbFile = context.getDatabasePath(AppDatabase.DB_NAME)
         if (!dbFile.exists()) {
             Toast.makeText(context, "Base de données introuvable", Toast.LENGTH_SHORT).show()
             return null
         }
 
-        val backupDir = File(context.getExternalFilesDir(null), "backups")
-        if (!backupDir.exists()) backupDir.mkdirs()
-
-        val backupFile = File(backupDir, "prof_suivi_backup_${System.currentTimeMillis()}.sqlite")
-
         return try {
-            val src = FileInputStream(dbFile).channel
-            val dst = FileOutputStream(backupFile).channel
-            dst.transferFrom(src, 0, src.size())
-            src.close()
-            dst.close()
+            AppDatabase.getInstance(context).openHelper.writableDatabase
+                .query("PRAGMA wal_checkpoint(FULL)").use { it.moveToFirst() }
+
+            val backupDir = File(context.getExternalFilesDir(null) ?: context.cacheDir, "backups")
+            if (!backupDir.exists()) backupDir.mkdirs()
+            val backupFile = File(backupDir, "prof_suivi_backup_${System.currentTimeMillis()}.sqlite")
+            dbFile.copyTo(backupFile, overwrite = true)
             backupFile
         } catch (e: Exception) {
             e.printStackTrace()
             null
-        }
-    }
-
-    fun importDatabase(context: Context, backupFile: File): Boolean {
-        val dbFile = context.getDatabasePath("prof_suivi_db")
-        return try {
-            val src = FileInputStream(backupFile).channel
-            val dst = FileOutputStream(dbFile).channel
-            dst.transferFrom(src, 0, src.size())
-            src.close()
-            dst.close()
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
         }
     }
 }

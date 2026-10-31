@@ -5,7 +5,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <!-- Permet d'ouvrir WhatsApp depuis l'app (Android 11+) -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -27,6 +32,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Récepteur des rappels de rendez-vous (manquant : les notifications ne s'affichaient jamais) -->
+        <receiver
+            android:name=".util.RendezVousAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Partage des fichiers exportés (PDF, CSV, sauvegarde) vers d'autres applications -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

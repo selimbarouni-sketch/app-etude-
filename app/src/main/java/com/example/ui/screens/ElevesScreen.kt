@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +25,9 @@ import com.example.data.local.entity.GroupeEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.CommunicationHelper
+import com.example.util.remplirModele
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +47,14 @@ fun ElevesScreen(
     var showAddGroupModal by remember { mutableStateOf(false) }
     var selectedEleveForDetails by remember { mutableStateOf<EleveEntity?>(null) }
     var eleveToEdit by remember { mutableStateOf<EleveEntity?>(null) }
+
+    var eleveASupprimer by remember { mutableStateOf<EleveEntity?>(null) }
+    var groupeASupprimer by remember { mutableStateOf<GroupeEntity?>(null) }
+
+    // Correction : {heure} était toujours remplacé par "16:00"
+    fun messageRappel(eleve: EleveEntity) = remplirModele(
+        settings.smsTemplateRappel, eleve.prenom, eleve.nom, eleve.classe, viewModel.heureProchainCours(eleve)
+    )
 
     LaunchedEffect(showAddDialogInitially) {
         if (showAddDialogInitially) showAddModal = true
@@ -154,28 +164,19 @@ fun ElevesScreen(
                             limitCycle = settings.seancesParPaiement,
                             onClick = { selectedEleveForDetails = eleve },
                             onCall = { CommunicationHelper.telephoner(context, eleve.telephone) },
-                            onSms = {
-                                val msg = settings.smsTemplateRappel
-                                    .replace("{prenom}", eleve.prenom)
-                                    .replace("{nom}", eleve.nom)
-                                    .replace("{classe}", eleve.classe)
-                                    .replace("{heure}", "16:00")
-                                CommunicationHelper.envoyerSms(context, eleve.telephone, msg)
-                            },
-                            onWhatsapp = {
-                                val msg = settings.smsTemplateRappel
-                                    .replace("{prenom}", eleve.prenom)
-                                    .replace("{nom}", eleve.nom)
-                                    .replace("{classe}", eleve.classe)
-                                    .replace("{heure}", "16:00")
-                                CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, msg)
-                            }
+                            onSms = { CommunicationHelper.envoyerSms(context, eleve.telephone, messageRappel(eleve)) },
+                            onWhatsapp = { CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, messageRappel(eleve)) }
                         )
                     }
                 }
             } else {
                 // Grouped By Group View (Requirement 4)
-                val groupedStudents = eleves.groupBy { it.groupe ?: "Non Classé" }
+                // Correction : les groupes sans élève n'apparaissaient pas du tout
+                val parGroupe = eleves.groupBy { it.groupe?.takeIf { g -> g.isNotBlank() } ?: "Non classé" }
+                val groupedStudents: Map<String, List<EleveEntity>> =
+                    allGroupes.associate { g ->
+                        g.nom to parGroupe.entries.filter { it.key.equals(g.nom, ignoreCase = true) }.flatMap { it.value }
+                    } + parGroupe.filterKeys { k -> allGroupes.none { it.nom.equals(k, ignoreCase = true) } }
 
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -230,8 +231,15 @@ fun ElevesScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        Badge(containerColor = PrimaryBlue) {
-                                            Text("${studentList.size} élève(s)", modifier = Modifier.padding(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Badge(containerColor = PrimaryBlue) {
+                                                Text("${studentList.size} élève(s)", modifier = Modifier.padding(4.dp))
+                                            }
+                                            if (matchingGroupEntity != null) {
+                                                IconButton(onClick = { groupeASupprimer = matchingGroupEntity }) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "Supprimer le groupe", tint = MaterialTheme.colorScheme.outline)
+                                                }
+                                            }
                                         }
                                     }
 
@@ -323,14 +331,8 @@ fun ElevesScreen(
             limitCycle = settings.seancesParPaiement,
             onDismiss = { selectedEleveForDetails = null },
             onCall = { CommunicationHelper.telephoner(context, eleve.telephone) },
-            onSms = {
-                val msg = settings.smsTemplateRappel.replace("{prenom}", eleve.prenom).replace("{nom}", eleve.nom).replace("{classe}", eleve.classe).replace("{heure}", "16:00")
-                CommunicationHelper.envoyerSms(context, eleve.telephone, msg)
-            },
-            onWhatsapp = {
-                val msg = settings.smsTemplateRappel.replace("{prenom}", eleve.prenom).replace("{nom}", eleve.nom).replace("{classe}", eleve.classe).replace("{heure}", "16:00")
-                CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, msg)
-            },
+            onSms = { CommunicationHelper.envoyerSms(context, eleve.telephone, messageRappel(eleve)) },
+            onWhatsapp = { CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, messageRappel(eleve)) },
             onShare = {
                 CommunicationHelper.partagerContact(context, eleve.nom, eleve.prenom, eleve.telephone, eleve.classe)
             },
@@ -339,9 +341,40 @@ fun ElevesScreen(
                 selectedEleveForDetails = null
             },
             onDelete = {
-                viewModel.deleteEleve(eleve)
+                // Correction : suppression immédiate sans confirmation
+                eleveASupprimer = eleve
                 selectedEleveForDetails = null
             }
+        )
+    }
+
+    eleveASupprimer?.let { eleve ->
+        AlertDialog(
+            onDismissRequest = { eleveASupprimer = null },
+            title = { Text("Supprimer ${eleve.prenom} ${eleve.nom} ?") },
+            text = { Text("Cette action est définitive. L'historique des séances et paiements est conservé.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteEleve(eleve)
+                    eleveASupprimer = null
+                }) { Text("Supprimer", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { eleveASupprimer = null }) { Text("Annuler") } }
+        )
+    }
+
+    groupeASupprimer?.let { groupe ->
+        AlertDialog(
+            onDismissRequest = { groupeASupprimer = null },
+            title = { Text("Supprimer le groupe ${groupe.nom} ?") },
+            text = { Text("Le créneau hebdomadaire sera supprimé. Les élèves ne sont pas supprimés.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteGroupe(groupe)
+                    groupeASupprimer = null
+                }) { Text("Supprimer", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { groupeASupprimer = null }) { Text("Annuler") } }
         )
     }
 }
@@ -419,7 +452,7 @@ fun EleveCardItem(
                         fontSize = 16.sp
                     )
                     Text(
-                        text = "Classe: ${eleve.classe} • Groupe: ${eleve.groupe ?: "Mandatoire"}",
+                        text = "Classe : ${eleve.classe} • Groupe : ${eleve.groupe?.ifBlank { null } ?: "Aucun"}",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -507,7 +540,7 @@ fun EleveDetailsBottomSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Classe : ${eleve.classe} • Groupe : ${eleve.groupe ?: "Mandatoire"}",
+                        text = "Classe : ${eleve.classe} • Groupe : ${eleve.groupe?.ifBlank { null } ?: "Aucun"}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -599,6 +632,7 @@ fun EleveDetailsBottomSheet(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddOrEditEleveDialog(
     eleve: EleveEntity? = null,
@@ -618,7 +652,10 @@ fun AddOrEditEleveDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (eleve == null) "Ajouter un Élève" else "Modifier Élève") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     value = nom,
                     onValueChange = { nom = it },
@@ -663,11 +700,11 @@ fun AddOrEditEleveDialog(
                     if (configuredGroupes.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Groupes existants :", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.padding(top = 4.dp)
                         ) {
-                            configuredGroupes.take(4).forEach { g ->
+                            configuredGroupes.forEach { g ->
                                 FilterChip(
                                     selected = groupe.equals(g.nom, ignoreCase = true),
                                     onClick = { groupe = g.nom },
@@ -697,7 +734,7 @@ fun AddOrEditEleveDialog(
             Button(
                 onClick = {
                     if (nom.isNotBlank() && prenom.isNotBlank() && telephone.isNotBlank() && classe.isNotBlank() && groupe.isNotBlank()) {
-                        onSave(nom, prenom, telephone, classe, observation, groupe, anniversaire)
+                        onSave(nom.trim(), prenom.trim(), telephone.trim(), classe.trim(), observation.trim(), groupe.trim(), anniversaire.trim().ifBlank { null })
                     }
                 },
                 enabled = nom.isNotBlank() && prenom.isNotBlank() && telephone.isNotBlank() && classe.isNotBlank() && groupe.isNotBlank()
@@ -711,6 +748,7 @@ fun AddOrEditEleveDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddGroupeDialog(
     onDismiss: () -> Unit,
@@ -728,7 +766,10 @@ fun AddGroupeDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nouveau Groupe & Créneau Hebdomadaire") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     value = nom,
                     onValueChange = { nom = it },
@@ -738,17 +779,8 @@ fun AddGroupeDialog(
                 )
 
                 Text("Jour Hebdomadaire Fixe :", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    jours.take(4).forEach { j ->
-                        FilterChip(
-                            selected = jourSemaine == j,
-                            onClick = { jourSemaine = j },
-                            label = { Text(j, fontSize = 11.sp) }
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    jours.drop(4).forEach { j ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    jours.forEach { j ->
                         FilterChip(
                             selected = jourSemaine == j,
                             onClick = { jourSemaine = j },

@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,7 +20,10 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ProfViewModel
-import com.example.util.NotificationHelper
+import com.example.util.formatDuree
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import java.util.TimeZone
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -36,7 +39,17 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
     var showAddModal by remember { mutableStateOf(false) }
     var selectedRdvForEdit by remember { mutableStateOf<RendezVousEntity?>(null) }
 
+    var rdvASupprimer by remember { mutableStateOf<RendezVousEntity?>(null) }
     val dateFormat = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
+
+    // À venir d'abord (du plus proche au plus lointain), puis les passés (du plus récent au plus ancien)
+    val debutJour = remember { Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis }
+    val rdvTries = remember(allRdv) {
+        val (aVenir, passes) = allRdv.partition { it.dateEpochMs >= debutJour }
+        aVenir.sortedBy { it.dateEpochMs } + passes.sortedByDescending { it.dateEpochMs }
+    }
 
     Scaffold(
         topBar = {
@@ -92,9 +105,10 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
                 ) {
-                    items(allRdv, key = { it.id }) { rdv ->
+                    items(rdvTries, key = { it.id }) { rdv ->
+                        val estPasse = rdv.dateEpochMs < debutJour
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().then(if (estPasse) Modifier.alpha(0.55f) else Modifier),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                         ) {
@@ -111,7 +125,7 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                                         color = PrimaryBlue
                                     )
                                     IconButton(
-                                        onClick = { viewModel.deleteRendezVous(rdv) },
+                                        onClick = { rdvASupprimer = rdv },
                                         modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = StatusRed)
@@ -128,7 +142,7 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "${rdv.heure} (${rdv.dureeHeures}h) • ${rdv.nomEleve}",
+                                        text = "${rdv.heure} (${formatDuree(rdv.dureeHeures)}h) • ${rdv.nomEleve}",
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 15.sp
                                     )
@@ -172,9 +186,23 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
             onDismiss = { showAddModal = false },
             onSave = { nomEleve, dateMs, heure, duree, lieu, remarque, eleveId ->
                 viewModel.addRendezVous(nomEleve, dateMs, heure, duree, lieu, remarque, eleveId)
-                NotificationHelper.programmerNotificationRendezVous(context, (System.currentTimeMillis() % 100000).toInt(), nomEleve, heure, dateMs)
                 showAddModal = false
             }
+        )
+    }
+
+    rdvASupprimer?.let { rdv ->
+        AlertDialog(
+            onDismissRequest = { rdvASupprimer = null },
+            title = { Text("Supprimer ce rendez-vous ?") },
+            text = { Text("${rdv.nomEleve} — ${dateFormat.format(Date(rdv.dateEpochMs))} à ${rdv.heure}") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteRendezVous(rdv)
+                    rdvASupprimer = null
+                }) { Text("Supprimer", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { rdvASupprimer = null }) { Text("Annuler") } }
         )
     }
 }
@@ -190,12 +218,12 @@ fun AddRendezVousDialog(
     var selectedEleveId by remember { mutableStateOf<Int?>(eleves.firstOrNull()?.id) }
     var customNom by remember { mutableStateOf("") }
     var heure by remember { mutableStateOf("16:00") }
-    var dureeHeures by remember { mutableStateOf("2.0") } // Default 2 hours
+    var dureeHeures by remember { mutableStateOf("2") }
     var lieu by remember { mutableStateOf("À domicile") }
     var remarque by remember { mutableStateOf("") }
 
-    val cal = Calendar.getInstance()
-    var dateEpochMs by remember { mutableStateOf(cal.timeInMillis) }
+    var dateEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     var expandedDropdown by remember { mutableStateOf(false) }
 
@@ -205,7 +233,10 @@ fun AddRendezVousDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nouveau Rendez-vous") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 if (eleves.isNotEmpty()) {
                     ExposedDropdownMenuBox(
                         expanded = expandedDropdown,
@@ -281,18 +312,19 @@ fun AddRendezVousDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text(
-                    text = "Date : ${dateFormat.format(Date(dateEpochMs))} (Aujourd'hui)",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Correction : la date était toujours "aujourd'hui", sans possibilité de la changer
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Date : ${dateFormat.format(Date(dateEpochMs))}")
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val finalNom = if (eleves.isNotEmpty()) selectedEleveName else customNom
-                    val dureeFloat = dureeHeures.toFloatOrNull() ?: 2.0f
+                    val dureeFloat = dureeHeures.replace(',', '.').trim().toFloatOrNull() ?: 2.0f
                     if (finalNom.isNotBlank()) {
                         onSave(finalNom, dateEpochMs, heure, dureeFloat, lieu, remarque, selectedEleveId)
                     }
@@ -305,4 +337,37 @@ fun AddRendezVousDialog(
             TextButton(onClick = onDismiss) { Text("Annuler") }
         }
     )
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = localVersUtc(dateEpochMs))
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { dateEpochMs = utcVersLocal(it) }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Annuler") } }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Le DatePicker travaille en minuit UTC : conversions vers/depuis le fuseau local. */
+private fun localVersUtc(localMs: Long): Long {
+    val local = Calendar.getInstance().apply { timeInMillis = localMs }
+    return Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+        clear()
+        set(local.get(Calendar.YEAR), local.get(Calendar.MONTH), local.get(Calendar.DAY_OF_MONTH))
+    }.timeInMillis
+}
+
+private fun utcVersLocal(utcMs: Long): Long {
+    val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcMs }
+    return Calendar.getInstance().apply {
+        clear()
+        set(utc.get(Calendar.YEAR), utc.get(Calendar.MONTH), utc.get(Calendar.DAY_OF_MONTH))
+    }.timeInMillis
 }

@@ -39,7 +39,7 @@ fun NotesScreen(viewModel: ProfViewModel) {
         allNotes.filter { note ->
             (selectedDossierId == null || note.dossierId == selectedDossierId) &&
             (searchQuery.isBlank() || note.titre.lowercase().contains(searchQuery.lowercase()) || note.contenu.lowercase().contains(searchQuery.lowercase()))
-        }
+        }.sortedByDescending { it.estFavori } // favoris en premier
     }
 
     val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)

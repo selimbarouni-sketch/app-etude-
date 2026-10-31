@@ -14,5 +14,5 @@ data class SettingsEntity(
     val devise: String = "TND", // Dinar Tunisien
     val modeSombre: Boolean = false,
     val smsTemplateRappel: String = "Bonjour {prenom}, petit rappel concernant votre cours de {classe} aujourd'hui à {heure}. Merci!",
-    val smsTemplatePaiement: String = "Bonjour {prenom}, rappel pour le paiement du forfait de 4 séances ({montant} {devise}). Merci!"
+    val smsTemplatePaiement: String = "Bonjour {prenom}, rappel pour le paiement du forfait ({montant} {devise}). Merci!"
 )

@@ -24,6 +24,7 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.SeanceEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ProfViewModel
+import com.example.util.formatDuree
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -79,7 +80,7 @@ fun QuickAppelSection(
     onSaveBatch: (List<SeanceEntity>) -> Unit
 ) {
     var heure by remember { mutableStateOf("16:00") }
-    var dureeHeures by remember { mutableStateOf("2.0") } // Default 2 hours
+    var dureeHeures by remember { mutableStateOf("2") }
     var selectedGroupFilter by remember { mutableStateOf("Tous") }
 
     // Map of eleveId -> Statut ("P", "A", "R")
@@ -104,10 +105,12 @@ fun QuickAppelSection(
 
     var showSuccessToast by remember { mutableStateOf(false) }
 
-    val pCount = attendanceMap.values.count { it == "P" }
-    val aCount = attendanceMap.values.count { it == "A" }
-    val rCount = attendanceMap.values.count { it == "R" }
-    val totalCount = attendanceMap.size
+    // Correction : les statistiques comptaient tous les élèves, pas seulement le groupe affiché
+    val statutsAffiches = filteredEleves.map { attendanceMap[it.id] ?: "P" }
+    val pCount = statutsAffiches.count { it == "P" }
+    val aCount = statutsAffiches.count { it == "A" }
+    val rCount = statutsAffiches.count { it == "R" }
+    val totalCount = statutsAffiches.size
     val presenceRate = if (totalCount > 0) ((pCount + rCount).toFloat() / totalCount * 100).toInt() else 0
 
     Column(
@@ -172,7 +175,7 @@ fun QuickAppelSection(
                 availableGroups.forEach { group ->
                     Tab(
                         selected = selectedGroupFilter == group,
-                        onClick = { selectedGroupFilter = group },
+                        onClick = { selectedGroupFilter = group; showSuccessToast = false },
                         text = { Text(group) }
                     )
                 }
@@ -201,6 +204,7 @@ fun QuickAppelSection(
                         statut = currentStatut,
                         onStatutChanged = { newStatut ->
                             attendanceMap[eleve.id] = newStatut
+                            showSuccessToast = false
                         }
                     )
                 }
@@ -211,7 +215,7 @@ fun QuickAppelSection(
             Button(
                 onClick = {
                     val nowMs = System.currentTimeMillis()
-                    val duree = dureeHeures.toFloatOrNull() ?: 2.0f
+                    val duree = dureeHeures.replace(',', '.').trim().toFloatOrNull() ?: 2.0f
                     val listToSave = filteredEleves.map { eleve ->
                         SeanceEntity(
                             eleveId = eleve.id,
@@ -226,6 +230,8 @@ fun QuickAppelSection(
                     onSaveBatch(listToSave)
                     showSuccessToast = true
                 },
+                // Évite d'enregistrer deux fois le même appel (double appui)
+                enabled = !showSuccessToast && filteredEleves.isNotEmpty(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -250,7 +256,7 @@ fun QuickAppelSection(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "💡 La prochaine séance hebdomadaire et son rappel sont prêts.",
+                            text = "Les compteurs de séances des élèves présents ont été mis à jour.",
                             fontSize = 12.sp,
                             color = StatusGreen
                         )
@@ -356,7 +362,20 @@ fun SeanceHistorySection(
     seances: List<SeanceEntity>,
     onDelete: (SeanceEntity) -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("dd/MM/yyyy • HH:mm", Locale.FRANCE)
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+    var seanceASupprimer by remember { mutableStateOf<SeanceEntity?>(null) }
+
+    seanceASupprimer?.let { seance ->
+        AlertDialog(
+            onDismissRequest = { seanceASupprimer = null },
+            title = { Text("Supprimer cette séance ?") },
+            text = { Text("${seance.nomEleveCache} — ${dateFormat.format(Date(seance.dateEpochMs))}. Le compteur de séances de l'élève sera corrigé.") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(seance); seanceASupprimer = null }) { Text("Supprimer", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { seanceASupprimer = null }) { Text("Annuler") } }
+        )
+    }
 
     if (seances.isEmpty()) {
         Box(
@@ -399,7 +418,7 @@ fun SeanceHistorySection(
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = "Date: ${dateFormat.format(Date(seance.dateEpochMs))} • Durée: ${seance.dureeHeures}h",
+                                text = "${dateFormat.format(Date(seance.dateEpochMs))} à ${seance.heure} • Durée : ${formatDuree(seance.dureeHeures)}h",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -417,7 +436,7 @@ fun SeanceHistorySection(
                             )
                         }
 
-                        IconButton(onClick = { onDelete(seance) }) {
+                        IconButton(onClick = { seanceASupprimer = seance }) {
                             Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.outline)
                         }
                     }

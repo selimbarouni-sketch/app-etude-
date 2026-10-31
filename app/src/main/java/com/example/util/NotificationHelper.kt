@@ -44,6 +44,17 @@ object NotificationHelper {
     const val CHANNEL_ID = "prof_suivi_notifications"
     private const val CHANNEL_NAME = "Rappels Cours & Rendez-vous"
 
+    fun annulerNotificationRendezVous(context: Context, rdvId: Int) {
+        val intent = Intent(context, RendezVousAlarmReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, rdvId, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: return
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
+    }
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -69,7 +80,7 @@ object NotificationHelper {
 
         val intent = Intent(context, RendezVousAlarmReceiver::class.java).apply {
             putExtra("title", "Rappel Cours : $nomEleve")
-            putExtra("message", "Rendez-vous prévu aujourd'hui à $heure")
+            putExtra("message", "Cours prévu à $heure")
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -80,22 +91,17 @@ object NotificationHelper {
         )
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        // Android 12+ : sans l'autorisation "alarmes exactes", setExact… lève une SecurityException
+        // et le rappel était silencieusement perdu. On bascule alors sur une alarme approximative.
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTimeEpochMs,
-                    pendingIntent
-                )
+            if (canExact) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeEpochMs, pendingIntent)
             } else {
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTimeEpochMs,
-                    pendingIntent
-                )
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeEpochMs, pendingIntent)
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (e: SecurityException) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeEpochMs, pendingIntent)
         }
     }
 }

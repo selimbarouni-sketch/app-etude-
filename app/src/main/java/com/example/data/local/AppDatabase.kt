@@ -44,6 +44,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun settingsDao(): SettingsDao
 
     companion object {
+        const val DB_NAME = "prof_suivi_db"
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -52,8 +54,10 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "prof_suivi_db"
+                    DB_NAME
                 )
+                // ATTENTION : si un jour on change le schéma (version 3…), il faudra écrire
+                // une Migration, sinon cette option efface toutes les données de l'utilisateur.
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
