@@ -42,7 +42,9 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
     val elevesPaiementEnAttente by viewModel.elevesPaiementEnAttente.collectAsState()
     val settings by viewModel.settings.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 : à payer, 1 : historique
+    val groupes by viewModel.allGroupes.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 : par groupe, 1 : en retard, 2 : historique
+    var filtreHisto by remember { mutableStateOf("") }
     var choixEleve by remember { mutableStateOf(false) }
     var eleveAPayer by remember { mutableStateOf<EleveEntity?>(null) }
     var paiementAModifier by remember { mutableStateOf<PaiementEntity?>(null) }
@@ -85,11 +87,20 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
             }
 
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("À payer (${elevesPaiementEnAttente.size})") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Historique (${paiements.size})") })
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Par groupe", maxLines = 1) })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("En retard (${elevesPaiementEnAttente.size})", maxLines = 1) })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Historique", maxLines = 1) })
             }
 
             if (selectedTab == 0) {
+                EncaisserParGroupe(
+                    groupes = groupes,
+                    eleves = eleves,
+                    paiements = paiements,
+                    settings = settings,
+                    onEncaisser = { eleveAPayer = it }
+                )
+            } else if (selectedTab == 1) {
                 if (elevesPaiementEnAttente.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -151,7 +162,17 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(paiements, key = { it.id }) { p ->
+                        item {
+                            OutlinedTextField(
+                                value = filtreHisto,
+                                onValueChange = { filtreHisto = it },
+                                placeholder = { Text("Filtrer par élève…") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        items(paiements.filter { filtreHisto.isBlank() || it.nomEleveCache.contains(filtreHisto.trim(), ignoreCase = true) }, key = { it.id }) { p ->
                             Card(
                                 modifier = Modifier.fillMaxWidth().clickable { paiementAModifier = p },
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -160,8 +181,8 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(p.nomEleveCache, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(
-                                            "${dateFormat.format(Date(p.dateEpochMs))} · ${p.modePaiement} · ${p.nbSeancesReglees} séance(s)",
-                                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            "Payé le ${dateFormat.format(Date(p.dateEpochMs))} · ${p.nbSeancesReglees} séance${if (p.nbSeancesReglees > 1) "s" else ""} · ${p.modePaiement}",
+                                            fontSize = 12.sp
                                         )
                                         if (p.observation.isNotBlank()) {
                                             Text(p.observation, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -290,8 +311,10 @@ fun PaiementDialog(
 ) {
     val limite = settings.seancesParPaiement.coerceAtLeast(1)
     val prixSeance = settings.tarifForfait / limite
-    var nbSeances by remember { mutableIntStateOf(initial?.nbSeancesReglees ?: limite) }
-    var montantText by remember { mutableStateOf(formatMontant(initial?.montant ?: settings.tarifForfait)) }
+    // Par défaut on règle toutes les séances faites : le compteur repart de 0
+    val nbInitial = initial?.nbSeancesReglees ?: if (seancesDues > 0) seancesDues else limite
+    var nbSeances by remember { mutableIntStateOf(nbInitial) }
+    var montantText by remember { mutableStateOf(formatMontant(initial?.montant ?: (prixSeance * nbInitial))) }
     var montantModifie by remember { mutableStateOf(initial != null) }
     var selectedMode by remember { mutableStateOf(initial?.modePaiement ?: "Espèces") }
     var observation by remember { mutableStateOf(initial?.observation ?: "") }
@@ -317,7 +340,7 @@ fun PaiementDialog(
                     FilledTonalIconButton(onClick = { changerNb(nbSeances + 1) }) { Icon(Icons.Default.Add, contentDescription = "Plus") }
                     Spacer(modifier = Modifier.width(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(limite, limite * 2).distinct().forEach { n ->
+                        (listOfNotNull(seancesDues.takeIf { it > 0 }) + listOf(limite, limite * 2)).distinct().forEach { n ->
                             SuggestionChip(onClick = { changerNb(n) }, label = { Text("$n") })
                         }
                     }
@@ -326,7 +349,7 @@ fun PaiementDialog(
                     when {
                         reste > 0 -> "Séances faites non payées : $seancesDues → il en restera $reste à payer."
                         reste < 0 -> "Séances faites non payées : ${seancesDues.coerceAtLeast(0)} → crédit de ${-reste} séance(s) payée(s) d'avance."
-                        else -> "Séances faites non payées : $seancesDues → tout sera réglé."
+                        else -> "Séances faites non payées : $seancesDues → tout est réglé, le compteur repart de 0."
                     },
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -388,4 +411,110 @@ fun PaiementDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+/** Encaissement : choisir le groupe, puis encaisser élève par élève. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EncaisserParGroupe(
+    groupes: List<com.example.data.local.entity.GroupeEntity>,
+    eleves: List<EleveEntity>,
+    paiements: List<PaiementEntity>,
+    settings: SettingsEntity,
+    onEncaisser: (EleveEntity) -> Unit
+) {
+    val limite = settings.seancesParPaiement.coerceAtLeast(1)
+    val prixSeance = settings.tarifForfait / limite
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE) }
+    fun memeNom(a: String?, b: String) = a != null && a.trim().equals(b.trim(), ignoreCase = true)
+
+    val listes: List<Pair<String, List<EleveEntity>>> = remember(groupes, eleves) {
+        val parGroupe = groupes.map { g -> g.nom to eleves.filter { memeNom(it.groupe, g.nom) } }
+        val sans = eleves.filter { e -> groupes.none { memeNom(e.groupe, it.nom) } }
+        (if (sans.isNotEmpty()) parGroupe + ("Sans groupe" to sans) else parGroupe)
+            .map { (nom, l) -> nom to l.sortedBy { it.nom + it.prenom } }
+    }
+    var choix by remember { mutableStateOf(listes.firstOrNull { it.second.isNotEmpty() }?.first ?: listes.firstOrNull()?.first) }
+    val groupe = listes.firstOrNull { it.first == choix } ?: listes.firstOrNull()
+    val debutJour = remember {
+        java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    if (eleves.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Text("Ajoutez d'abord des élèves.") }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Text("1. Choisissez le groupe", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listes.forEach { (nom, l) ->
+                    val dus = l.count { it.sessionsInCurrentCycle > 0 }
+                    FilterChip(
+                        selected = groupe?.first == nom,
+                        onClick = { choix = nom },
+                        label = { Text("$nom (${l.size})" + if (dus > 0) " · $dus à payer" else "") }
+                    )
+                }
+            }
+        }
+        if (groupe != null) {
+            item {
+                val reste = groupe.second.sumOf { (it.sessionsInCurrentCycle.coerceAtLeast(0)) * prixSeance }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("2. Encaissez élève par élève", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("Reste : ${formatMontant(reste)} ${settings.devise}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+            if (groupe.second.isEmpty()) {
+                item { Text("Aucun élève dans ce groupe.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(groupe.second, key = { it.id }) { e ->
+                val dues = e.sessionsInCurrentCycle
+                val dernier = paiements.filter { it.eleveId == e.id }.maxByOrNull { it.dateEpochMs }
+                val payeAujourdhui = dernier != null && dernier.dateEpochMs >= debutJour && dues <= 0
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${e.prenom} ${e.nom}", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    if (payeAujourdhui) "✓ Payé" else libelleCycle(dues, limite),
+                                    fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    color = when { payeAujourdhui || dues <= 0 -> StatusGreen; dues >= limite -> StatusRed; else -> StatusOrange }
+                                )
+                            }
+                            Text(
+                                when {
+                                    dues > 0 -> "$dues séance${if (dues > 1) "s" else ""} à payer · ${formatMontant(dues * prixSeance)} ${settings.devise}"
+                                    dues < 0 -> "Crédit : ${-dues} séance(s) payée(s) d'avance"
+                                    else -> "À jour · compteur à 0"
+                                },
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                dernier?.let { "Dernier paiement : ${dateFormat.format(Date(it.dateEpochMs))} · ${formatMontant(it.montant)} ${settings.devise} · ${it.nbSeancesReglees} séance(s)" }
+                                    ?: "Aucun paiement",
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { onEncaisser(e) },
+                            colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) { Text("Encaisser") }
+                    }
+                }
+            }
+        }
+    }
 }

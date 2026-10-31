@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, Hourglass, MessageCircle, Pencil, Plus, Wallet } from "lucide-react";
 import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { MODES_PAIEMENT, formatDate, formatMontant, libelleCycle, lienWhatsapp, lireNombre, remplirModele } from "../utils";
+import { MODES_PAIEMENT, estAujourdhui, formatDate, formatMontant, initiales, libelleCycle, lienWhatsapp, lireNombre, remplirModele } from "../utils";
 
 export default function Paiements() {
   const d = useDonnees();
   const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
-  const [onglet, setOnglet] = useState<"attente" | "historique">("attente");
+  const [onglet, setOnglet] = useState<"encaisser" | "attente" | "historique">("encaisser");
+  const [filtreHisto, setFiltreHisto] = useState("");
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [choisir, setChoisir] = useState(false);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
@@ -37,11 +38,14 @@ export default function Paiements() {
       </div>
 
       <div className="tabs">
-        <button className={onglet === "attente" ? "on" : ""} onClick={() => setOnglet("attente")}>À encaisser ({enAttente.length})</button>
+        <button className={onglet === "encaisser" ? "on" : ""} onClick={() => setOnglet("encaisser")}>Par groupe</button>
+        <button className={onglet === "attente" ? "on" : ""} onClick={() => setOnglet("attente")}>En retard ({enAttente.length})</button>
         <button className={onglet === "historique" ? "on" : ""} onClick={() => setOnglet("historique")}>Historique ({d.paiements.length})</button>
       </div>
 
-      {onglet === "attente" ? (
+      {onglet === "encaisser" ? (
+        <EncaisserParGroupe onPayer={setPayer} />
+      ) : onglet === "attente" ? (
         enAttente.length === 0 ? (
           <div className="alert green"><CheckCircle2 size={22} /><div className="bold">Tous les paiements sont à jour !</div></div>
         ) : (
@@ -69,11 +73,12 @@ export default function Paiements() {
         <Vide icone={<Wallet size={48} />} texte="Aucun paiement enregistré." />
       ) : (
         <div className="list">
-          {[...d.paiements].sort((a, b) => b.date - a.date).map((p) => (
+          <input className="input" placeholder="Filtrer par élève…" value={filtreHisto} onChange={(e) => setFiltreHisto(e.target.value)} />
+          {[...d.paiements].sort((a, b) => b.date - a.date).filter((p) => !filtreHisto || p.nomEleve.toLowerCase().includes(filtreHisto.toLowerCase())).map((p) => (
             <div key={p.id} className="card item clickable" onClick={() => setAModifier(p)}>
               <div className="grow">
                 <div className="bold ellipsis">{p.nomEleve}</div>
-                <div className="small muted">{formatDate(p.date)} · {p.modePaiement} · {p.nbSeancesReglees} séance(s)</div>
+                <div className="small">Payé le <b>{formatDate(p.date)}</b> · <b>{p.nbSeancesReglees} séance{p.nbSeancesReglees > 1 ? "s" : ""}</b> · {p.modePaiement}</div>
                 {p.observation && <div className="tiny muted">{p.observation}</div>}
                 {!estEncaisse(p) && (
                   <button className="badge orange" style={{ border: 0, cursor: "pointer", marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
@@ -129,8 +134,10 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
   const d = useDonnees();
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
   const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
-  const [nb, setNb] = useState(paiement?.nbSeancesReglees ?? seancesParPaiement);
-  const [montant, setMontant] = useState(String(paiement?.montant ?? tarifForfait));
+  // Par défaut : on règle toutes les séances faites → le compteur repart de 0
+  const nbInitial = paiement?.nbSeancesReglees ?? ((eleve?.sessionsInCurrentCycle ?? 0) > 0 ? eleve!.sessionsInCurrentCycle : seancesParPaiement);
+  const [nb, setNb] = useState(nbInitial);
+  const [montant, setMontant] = useState(String(paiement?.montant ?? Math.round(prixSeance * nbInitial * 100) / 100));
   const [montantModifie, setMontantModifie] = useState(!!paiement);
   const [mode, setMode] = useState(paiement?.modePaiement ?? MODES_PAIEMENT[0]);
   const [obs, setObs] = useState(paiement?.observation ?? "");
@@ -172,14 +179,14 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
           <input className="input" style={{ width: 70, textAlign: "center", fontWeight: 700 }} inputMode="numeric" value={nb}
             onChange={(e) => changerNb(lireNombre(e.target.value, nb))} />
           <button className="btn secondary" type="button" onClick={() => changerNb(nb + 1)} aria-label="Plus">+</button>
-          {[seancesParPaiement, seancesParPaiement * 2].map((n) => (
+          {Array.from(new Set([...(dues > 0 ? [dues] : []), seancesParPaiement, seancesParPaiement * 2])).map((n) => (
             <button key={n} type="button" className={`chip ${nb === n ? "on" : ""}`} onClick={() => changerNb(n)}>{n} séances</button>
           ))}
         </div>
       </Field>
       <div className="alert blue small"><div>
         {reste > 0 && <>Séances faites non payées : <b>{dues}</b> → il en restera <b>{reste}</b> à payer.</>}
-        {reste === 0 && <>Séances faites non payées : <b>{dues}</b> → tout sera réglé.</>}
+        {reste === 0 && <>Séances faites non payées : <b>{dues}</b> → tout est réglé, le compteur repart de <b>0</b>.</>}
         {reste < 0 && <>Séances faites non payées : <b>{Math.max(0, dues)}</b> → crédit de <b>{-reste}</b> séance(s) payée(s) d'avance.</>}
       </div></div>
       <Field label={`Montant (${devise}) — ${formatMontant(prixSeance)} ${devise} par séance`}>
@@ -197,5 +204,85 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
       </label>
       <Field label="Observation"><input className="input" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Facultatif" /></Field>
     </Modal>
+  );
+}
+
+/** Encaissement : on choisit un groupe, puis on encaisse élève par élève. */
+function EncaisserParGroupe({ onPayer }: { onPayer: (e: Eleve) => void }) {
+  const d = useDonnees();
+  const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
+  const prixSeance = tarifForfait / Math.max(1, limite);
+  const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+  const groupes = useMemo(() => {
+    const liste = d.groupes.map((g) => ({ nom: g.nom, eleves: d.eleves.filter((e) => memeNom(e.groupe, g.nom)) }));
+    const sans = d.eleves.filter((e) => !d.groupes.some((g) => memeNom(g.nom, e.groupe)));
+    if (sans.length) liste.push({ nom: "Sans groupe", eleves: sans });
+    return liste.map((g) => ({ ...g, eleves: [...g.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")) }));
+  }, [d.groupes, d.eleves]);
+
+  const [choix, setChoix] = useState(() => (groupes.find((g) => g.eleves.length) ?? groupes[0])?.nom ?? "");
+  const groupe = groupes.find((g) => g.nom === choix) ?? groupes[0];
+
+  if (!d.eleves.length) return <Vide icone={<Wallet size={48} />} texte="Ajoutez d'abord des élèves." />;
+
+  const dernierPaiement = (e: Eleve) => d.paiements.filter((p) => p.eleveId === e.id).sort((a, b) => b.date - a.date)[0];
+  const aPayer = groupe ? groupe.eleves.reduce((s, e) => s + Math.max(0, e.sessionsInCurrentCycle) * prixSeance, 0) : 0;
+
+  return (
+    <div className="stack">
+      <div className="small bold muted">1. Choisissez le groupe</div>
+      <div className="chips">
+        {groupes.map((g) => {
+          const dus = g.eleves.filter((e) => e.sessionsInCurrentCycle > 0).length;
+          return (
+            <button key={g.nom} className={`chip ${groupe?.nom === g.nom ? "on" : ""}`} onClick={() => setChoix(g.nom)}>
+              {g.nom} <span className="muted">({g.eleves.length})</span>{dus > 0 && <span className="badge red" style={{ marginLeft: 6, padding: "0 7px" }}>{dus}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {groupe && (
+        <>
+          <div className="row" style={{ marginTop: 6 }}>
+            <div className="small bold muted grow">2. Encaissez élève par élève</div>
+            <div className="small">Reste à encaisser : <b className="money">{formatMontant(aPayer)} {devise}</b></div>
+          </div>
+          {groupe.eleves.length === 0 ? (
+            <div className="card pad muted small">Aucun élève dans ce groupe.</div>
+          ) : (
+            <div className="list">
+              {groupe.eleves.map((e) => {
+                const dernier = dernierPaiement(e);
+                const payeAujourdhui = dernier && estAujourdhui(dernier.date);
+                const dues = e.sessionsInCurrentCycle;
+                return (
+                  <div key={e.id} className="card item" style={dues >= limite ? { borderColor: "color-mix(in srgb, var(--red) 35%, var(--border))" } : undefined}>
+                    <div className="avatar">{initiales(e.prenom, e.nom)}</div>
+                    <div className="grow">
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="bold ellipsis">{e.prenom} {e.nom}</span>
+                        {payeAujourdhui && dues <= 0
+                          ? <span className="badge green" style={{ flexShrink: 0 }}>✓ Payé</span>
+                          : <span className={`badge ${dues >= limite ? "red" : dues > 0 ? "orange" : "green"}`} style={{ flexShrink: 0 }}>{libelleCycle(dues, limite)}</span>}
+                      </div>
+                      <div className="small muted">
+                        {dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prixSeance)} {devise}</b></>
+                          : dues < 0 ? <>Crédit : {-dues} séance(s) payée(s) d'avance</> : <>À jour · compteur à 0</>}
+                      </div>
+                      <div className="tiny muted">
+                        {dernier ? <>Dernier paiement : {formatDate(dernier.date)} · {formatMontant(dernier.montant)} {devise} · {dernier.nbSeancesReglees} séance(s)</> : "Aucun paiement"}
+                      </div>
+                    </div>
+                    <button className="btn success small" onClick={() => onPayer(e)}><Wallet size={15} />Encaisser</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
