@@ -1,0 +1,14 @@
+{
+  "name": "ProfSuivi",
+  "short_name": "ProfSuivi",
+  "description": "Gestion de cours particuliers : élèves, séances, rendez-vous, paiements et notes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#1565C0",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
