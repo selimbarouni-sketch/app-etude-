@@ -30,6 +30,10 @@ interface EleveDao {
     suspend fun updateEleve(eleve: EleveEntity)
 
     /** Place plusieurs élèves dans un groupe (un élève n'appartient qu'à un groupe). */
+    /** Corrige le compteur de séances à payer (delta positif ou négatif). */
+    @Query("UPDATE eleves SET sessionsInCurrentCycle = sessionsInCurrentCycle + :delta WHERE id = :eleveId")
+    suspend fun ajusterSeancesDues(eleveId: Int, delta: Int)
+
     @Query("UPDATE eleves SET groupe = :nomGroupe WHERE id IN (:ids)")
     suspend fun affecterAuGroupe(ids: List<Int>, nomGroupe: String)
 
@@ -46,10 +50,10 @@ interface EleveDao {
     @Query("UPDATE eleves SET sessionsInCurrentCycle = sessionsInCurrentCycle + 1, totalSeancesRealisees = totalSeancesRealisees + 1 WHERE id = :eleveId")
     suspend fun incrementSessionCount(eleveId: Int)
 
-    @Query("UPDATE eleves SET sessionsInCurrentCycle = MAX(sessionsInCurrentCycle - 1, 0), totalSeancesRealisees = MAX(totalSeancesRealisees - 1, 0) WHERE id = :eleveId")
+    @Query("UPDATE eleves SET sessionsInCurrentCycle = sessionsInCurrentCycle - 1, totalSeancesRealisees = MAX(totalSeancesRealisees - 1, 0) WHERE id = :eleveId")
     suspend fun decrementSessionCount(eleveId: Int)
 
-    /** Retire du cycle les séances payées (au lieu de tout remettre à 0). */
-    @Query("UPDATE eleves SET sessionsInCurrentCycle = MAX(sessionsInCurrentCycle - :nbSeances, 0) WHERE id = :eleveId")
+    /** Retire les séances payées ; si on paie plus que ce qui est dû, le surplus devient un crédit (valeur négative). */
+    @Query("UPDATE eleves SET sessionsInCurrentCycle = sessionsInCurrentCycle - :nbSeances WHERE id = :eleveId")
     suspend fun deduireSeancesPayees(eleveId: Int, nbSeances: Int)
 }

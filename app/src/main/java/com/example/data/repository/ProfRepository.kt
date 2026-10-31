@@ -126,7 +126,8 @@ class ProfRepository(private val db: AppDatabase) {
         montant: Double,
         modePaiement: String,
         nbSeances: Int,
-        observation: String
+        observation: String,
+        estEncaisse: Boolean = true
     ) {
         val paiement = PaiementEntity(
             eleveId = eleveId,
@@ -135,13 +136,33 @@ class ProfRepository(private val db: AppDatabase) {
             montant = montant,
             modePaiement = modePaiement,
             nbSeancesReglees = nbSeances,
-            observation = observation
+            observation = observation,
+            estEncaisse = estEncaisse
         )
         db.withTransaction {
             paiementDao.insertPaiement(paiement)
-            // Correction : on retire seulement les séances payées. Avant, le compteur
-            // était remis à 0 et les séances en plus (ex. 6 faites, 4 payées) étaient perdues.
+            // On retire seulement les séances réglées (ex. 6 faites, 4 payées : il en reste 2).
+            // Payer 8 séances alors que 4 sont faites laisse un crédit de 4 séances.
             eleveDao.deduireSeancesPayees(eleveId, nbSeances)
+        }
+    }
+
+    /** Modifie un versement ; si le nombre de séances réglées change, le compteur de l'élève est corrigé. */
+    suspend fun modifierPaiement(paiement: PaiementEntity) {
+        db.withTransaction {
+            val ancien = paiementDao.getPaiementById(paiement.id)
+            paiementDao.updatePaiement(paiement)
+            if (ancien != null && ancien.nbSeancesReglees != paiement.nbSeancesReglees) {
+                eleveDao.ajusterSeancesDues(paiement.eleveId, ancien.nbSeancesReglees - paiement.nbSeancesReglees)
+            }
+        }
+    }
+
+    /** Annule un versement : ses séances redeviennent à payer. */
+    suspend fun supprimerPaiement(paiement: PaiementEntity) {
+        db.withTransaction {
+            paiementDao.deletePaiement(paiement)
+            eleveDao.ajusterSeancesDues(paiement.eleveId, paiement.nbSeancesReglees)
         }
     }
 

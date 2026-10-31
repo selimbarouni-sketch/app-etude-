@@ -491,7 +491,7 @@ fun EleveCardItem(
                     contentColor = if (eleve.sessionsInCurrentCycle >= limitCycle) Color.White else StatusGreen
                 ) {
                     Text(
-                        text = "${eleve.sessionsInCurrentCycle}/$limitCycle s",
+                        text = com.example.util.libelleCycle(eleve.sessionsInCurrentCycle, limitCycle),
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         fontSize = 12.sp
                     )
@@ -579,7 +579,11 @@ fun EleveDetailsBottomSheet(
                     if (!eleve.anniversaire.isNull_or_empty()) {
                         Text(text = "Anniversaire : ${eleve.anniversaire}", fontSize = 13.sp)
                     }
-                    Text(text = "Séances réalisées cycle actuel : ${eleve.sessionsInCurrentCycle} / $limitCycle", fontSize = 13.sp)
+                    Text(
+                        text = if (eleve.sessionsInCurrentCycle < 0) "Séances payées d'avance : ${-eleve.sessionsInCurrentCycle}"
+                               else "Séances à payer : ${eleve.sessionsInCurrentCycle} / $limitCycle",
+                        fontSize = 13.sp
+                    )
                     Text(text = "Total séances historiques : ${eleve.totalSeancesRealisees}", fontSize = 13.sp)
                     if (eleve.observation.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))

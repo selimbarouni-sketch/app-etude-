@@ -1,5 +1,6 @@
 package com.example.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,5 +15,8 @@ data class RendezVousEntity(
     val dureeHeures: Float = 2.0f, // Default 2 hours
     val lieu: String = "À domicile",
     val remarque: String = "",
-    val estEffectue: Boolean = false
+    val estEffectue: Boolean = false,
+    /** Séance annulée : conservée dans l'agenda (barrée), sans rappel. */
+    @ColumnInfo(defaultValue = "0")
+    val estAnnule: Boolean = false
 )

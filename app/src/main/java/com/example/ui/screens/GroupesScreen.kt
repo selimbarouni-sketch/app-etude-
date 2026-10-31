@@ -231,7 +231,7 @@ fun GroupesScreen(viewModel: ProfViewModel) {
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("${e.prenom} ${e.nom}", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${e.classe} · ${e.sessionsInCurrentCycle}/${settings.seancesParPaiement} séances", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${e.classe} · ${com.example.util.libelleCycle(e.sessionsInCurrentCycle, settings.seancesParPaiement)} séances", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             IconButton(onClick = {
                                 viewModel.retirerDuGroupe(e)

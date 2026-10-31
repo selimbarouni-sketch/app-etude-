@@ -493,7 +493,7 @@ fun EleveQuickRow(eleve: EleveEntity, limitCycle: Int = 4, onClick: () -> Unit) 
                 contentColor = if (eleve.sessionsInCurrentCycle >= limitCycle) Color.White else StatusGreen
             ) {
                 Text(
-                    text = "${eleve.sessionsInCurrentCycle}/$limitCycle",
+                    text = com.example.util.libelleCycle(eleve.sessionsInCurrentCycle, limitCycle),
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
