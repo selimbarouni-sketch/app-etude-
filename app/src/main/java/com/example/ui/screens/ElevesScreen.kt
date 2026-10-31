@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.GroupeEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.CommunicationHelper
 import com.example.util.remplirModele
@@ -50,6 +51,7 @@ fun ElevesScreen(
 
     var eleveASupprimer by remember { mutableStateOf<EleveEntity?>(null) }
     var groupeASupprimer by remember { mutableStateOf<GroupeEntity?>(null) }
+    var ajoutDansGroupe by remember { mutableStateOf<GroupeEntity?>(null) }
 
     // Correction : {heure} était toujours remplacé par "16:00"
     fun messageRappel(eleve: EleveEntity) = remplirModele(
@@ -63,11 +65,12 @@ fun ElevesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Gestion des Élèves (${eleves.size})", fontWeight = FontWeight.Bold) },
+                title = { Text("Élèves (${eleves.size})", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = { showAddGroupModal = true }) {
                         Icon(Icons.Default.GroupAdd, contentDescription = "Créer un Groupe", tint = PrimaryBlue)
                     }
+                    RaccourcisNavigation()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
@@ -257,6 +260,11 @@ fun ElevesScreen(
 
                                     if (matchingGroupEntity != null) {
                                         Spacer(modifier = Modifier.height(8.dp))
+                                        Button(onClick = { ajoutDansGroupe = matchingGroupEntity }, modifier = Modifier.fillMaxWidth()) {
+                                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Ajouter des élèves")
+                                        }
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.programmerProchaineSeanceGroupe(matchingGroupEntity)
@@ -312,13 +320,28 @@ fun ElevesScreen(
     }
 
     // Modal: Create Group & Set Weekly Time Slot
+    // Création d'un groupe en 2 étapes (même assistant que l'écran Groupes)
     if (showAddGroupModal) {
-        AddGroupeDialog(
+        GroupeFormDialog(
+            groupe = null,
+            autresGroupes = allGroupes,
             onDismiss = { showAddGroupModal = false },
             onSave = { nom, jour, debut, fin, lieu ->
-                viewModel.addGroupe(nom, jour, debut, fin, lieu)
-                Toast.makeText(context, "Groupe '$nom' créé ($jour $debut-$fin)", Toast.LENGTH_SHORT).show()
                 showAddGroupModal = false
+                viewModel.creerGroupe(nom, jour, debut, fin, lieu) { cree -> ajoutDansGroupe = cree }
+            }
+        )
+    }
+
+    ajoutDansGroupe?.let { g ->
+        AjoutElevesDialog(
+            groupe = g,
+            eleves = viewModel.allEleves.collectAsState().value,
+            onDismiss = { ajoutDansGroupe = null },
+            onConfirm = { ids, nouveaux ->
+                viewModel.ajouterElevesAuGroupe(g, ids, nouveaux)
+                Toast.makeText(context, "${ids.size + nouveaux.size} élève(s) ajouté(s) à ${g.nom}", Toast.LENGTH_SHORT).show()
+                ajoutDansGroupe = null
             }
         )
     }
@@ -367,7 +390,7 @@ fun ElevesScreen(
         AlertDialog(
             onDismissRequest = { groupeASupprimer = null },
             title = { Text("Supprimer le groupe ${groupe.nom} ?") },
-            text = { Text("Le créneau hebdomadaire sera supprimé. Les élèves ne sont pas supprimés.") },
+            text = { Text("Le groupe et son créneau seront supprimés. Les élèves sont conservés et passent « sans groupe ».") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteGroupe(groupe)
@@ -740,91 +763,6 @@ fun AddOrEditEleveDialog(
                 enabled = nom.isNotBlank() && prenom.isNotBlank() && telephone.isNotBlank() && classe.isNotBlank() && groupe.isNotBlank()
             ) {
                 Text(if (eleve == null) "Créer" else "Enregistrer")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Annuler") }
-        }
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun AddGroupeDialog(
-    onDismiss: () -> Unit,
-    onSave: (nom: String, jour: String, debut: String, fin: String, lieu: String) -> Unit
-) {
-    var nom by remember { mutableStateOf("") }
-    var jourSemaine by remember { mutableStateOf("Samedi") }
-    var heureDebut by remember { mutableStateOf("14:00") }
-    var heureFin by remember { mutableStateOf("16:00") }
-    var lieu by remember { mutableStateOf("Salle Principale") }
-
-    val jours = listOf("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Nouveau Groupe & Créneau Hebdomadaire") },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                OutlinedTextField(
-                    value = nom,
-                    onValueChange = { nom = it },
-                    label = { Text("Nom du Groupe * (ex: Groupe Bac Math)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Jour Hebdomadaire Fixe :", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    jours.forEach { j ->
-                        FilterChip(
-                            selected = jourSemaine == j,
-                            onClick = { jourSemaine = j },
-                            label = { Text(j, fontSize = 11.sp) }
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = heureDebut,
-                        onValueChange = { heureDebut = it },
-                        label = { Text("Heure Début (ex: 14:00)") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = heureFin,
-                        onValueChange = { heureFin = it },
-                        label = { Text("Heure Fin (ex: 16:00)") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                }
-
-                OutlinedTextField(
-                    value = lieu,
-                    onValueChange = { lieu = it },
-                    label = { Text("Lieu (ex: Salle 1, À domicile)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (nom.isNotBlank()) {
-                        onSave(nom, jourSemaine, heureDebut, heureFin, lieu)
-                    }
-                },
-                enabled = nom.isNotBlank()
-            ) {
-                Text("Créer Groupe")
             }
         },
         dismissButton = {

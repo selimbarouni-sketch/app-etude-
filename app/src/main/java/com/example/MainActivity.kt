@@ -47,8 +47,9 @@ class MainActivity : ComponentActivity() {
             // Le choix fait dans Paramètres s'applique (avant, impossible de repasser
             // en clair si le téléphone était en mode sombre)
             val useDarkTheme = settings.modeSombre
+            val chic by viewModel.styleChic.collectAsState()
 
-            ProfSuiviTheme(darkTheme = useDarkTheme) {
+            ProfSuiviTheme(darkTheme = useDarkTheme, chic = chic) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

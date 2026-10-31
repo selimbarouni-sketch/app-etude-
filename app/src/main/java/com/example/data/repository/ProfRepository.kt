@@ -29,9 +29,30 @@ class ProfRepository(private val db: AppDatabase) {
 
     suspend fun addGroupe(groupe: GroupeEntity): Long = groupeDao.insertGroupe(groupe)
 
-    suspend fun updateGroupe(groupe: GroupeEntity) = groupeDao.updateGroupe(groupe)
+    /** Modifie un groupe ; si son nom change, ses élèves suivent. */
+    suspend fun updateGroupe(groupe: GroupeEntity) {
+        db.withTransaction {
+            val ancien = groupeDao.getGroupeById(groupe.id)
+            groupeDao.updateGroupe(groupe)
+            if (ancien != null && ancien.nom != groupe.nom) eleveDao.renommerGroupe(ancien.nom, groupe.nom)
+        }
+    }
 
-    suspend fun deleteGroupe(groupe: GroupeEntity) = groupeDao.deleteGroupe(groupe)
+    /** Supprime le groupe ; ses élèves sont conservés et passent "sans groupe". */
+    suspend fun deleteGroupe(groupe: GroupeEntity) {
+        db.withTransaction {
+            groupeDao.deleteGroupe(groupe)
+            eleveDao.renommerGroupe(groupe.nom, null)
+        }
+    }
+
+    suspend fun affecterAuGroupe(ids: List<Int>, nomGroupe: String) {
+        if (ids.isNotEmpty()) eleveDao.affecterAuGroupe(ids, nomGroupe)
+    }
+
+    suspend fun retirerDuGroupe(eleveId: Int) = eleveDao.retirerDuGroupe(eleveId)
+
+    suspend fun addEleves(eleves: List<EleveEntity>) = eleveDao.insertEleves(eleves)
 
     suspend fun ensureDefaultGroupesExist() {
         if (groupeDao.getGroupeCount() == 0) {

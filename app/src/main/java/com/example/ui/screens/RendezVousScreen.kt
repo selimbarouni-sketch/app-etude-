@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.formatDuree
 import androidx.compose.foundation.rememberScrollState
@@ -54,7 +55,8 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Agenda & Rendez-vous (${allRdv.size})", fontWeight = FontWeight.Bold) },
+                title = { Text("Agenda (${allRdv.size})", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },

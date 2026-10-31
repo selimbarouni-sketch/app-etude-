@@ -34,3 +34,20 @@ val Typography =
     )
     */
   )
+
+// Style « Chic » : titres à empattements (serif), texte aéré
+private val base = Typography()
+private val Titre = FontFamily.Serif
+
+val ChicTypography = Typography(
+    displayLarge = base.displayLarge.copy(fontFamily = Titre),
+    displayMedium = base.displayMedium.copy(fontFamily = Titre),
+    displaySmall = base.displaySmall.copy(fontFamily = Titre),
+    headlineLarge = base.headlineLarge.copy(fontFamily = Titre),
+    headlineMedium = base.headlineMedium.copy(fontFamily = Titre),
+    headlineSmall = base.headlineSmall.copy(fontFamily = Titre),
+    titleLarge = base.titleLarge.copy(fontFamily = Titre, letterSpacing = 0.3.sp),
+    titleMedium = base.titleMedium.copy(fontFamily = Titre),
+    bodyLarge = base.bodyLarge.copy(letterSpacing = 0.4.sp),
+    labelLarge = base.labelLarge.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium),
+)

@@ -19,29 +19,36 @@ import com.example.ui.viewmodel.ProfViewModel
 enum class NavigationTab(
     val title: String,
     val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector
+    val unselectedIcon: ImageVector,
+    /** false : accessible par les icônes en haut à droite (Notes, Paramètres) */
+    val dansBarre: Boolean = true
 ) {
     ACCUEIL("Accueil", Icons.Filled.Home, Icons.Outlined.Home),
     ELEVES("Élèves", Icons.Filled.School, Icons.Outlined.School),
-    RENDEZ_VOUS("Rdv", Icons.Filled.Event, Icons.Outlined.Event),
+    GROUPES("Groupes", Icons.Filled.Groups, Icons.Outlined.Groups),
+    RENDEZ_VOUS("Agenda", Icons.Filled.Event, Icons.Outlined.Event),
     SEANCES("Séances", Icons.Filled.MenuBook, Icons.Outlined.MenuBook),
     PAIEMENTS("Paiements", Icons.Filled.Payments, Icons.Outlined.Payments),
-    NOTES("Notes", Icons.Filled.Notes, Icons.Outlined.Notes),
-    PARAMETRES("Paramètres", Icons.Filled.Settings, Icons.Outlined.Settings)
+    NOTES("Notes", Icons.Filled.Notes, Icons.Outlined.Notes, dansBarre = false),
+    PARAMETRES("Paramètres", Icons.Filled.Settings, Icons.Outlined.Settings, dansBarre = false)
 }
+
+/** Permet aux écrans d'afficher les raccourcis Notes / Paramètres dans leur barre du haut. */
+val LocalNavigation = staticCompositionLocalOf<(NavigationTab) -> Unit> { {} }
 
 @Composable
 fun MainScreenContainer(viewModel: ProfViewModel) {
     var selectedTab by remember { mutableStateOf(NavigationTab.ACCUEIL) }
     var triggerAddEleveDialogFromAccueil by remember { mutableStateOf(false) }
 
+    CompositionLocalProvider(LocalNavigation provides { tab -> selectedTab = tab }) {
     Scaffold(
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = NavigationBarDefaults.Elevation
             ) {
-                NavigationTab.entries.forEach { tab ->
+                NavigationTab.entries.filter { it.dansBarre }.forEach { tab ->
                     val isSelected = selectedTab == tab
                     NavigationBarItem(
                         selected = isSelected,
@@ -55,7 +62,8 @@ fun MainScreenContainer(viewModel: ProfViewModel) {
                         label = {
                             Text(
                                 text = tab.title,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
+                                maxLines = 1,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
@@ -92,6 +100,7 @@ fun MainScreenContainer(viewModel: ProfViewModel) {
                         showAddDialogInitially = triggerAddEleveDialogFromAccueil,
                         onAddDialogDismissed = { triggerAddEleveDialogFromAccueil = false }
                     )
+                    NavigationTab.GROUPES -> GroupesScreen(viewModel = viewModel)
                     NavigationTab.RENDEZ_VOUS -> RendezVousScreen(viewModel = viewModel)
                     NavigationTab.SEANCES -> SeancesScreen(viewModel = viewModel)
                     NavigationTab.PAIEMENTS -> PaiementsScreen(viewModel = viewModel)
@@ -101,4 +110,5 @@ fun MainScreenContainer(viewModel: ProfViewModel) {
             }
         }
     }
+}
 }

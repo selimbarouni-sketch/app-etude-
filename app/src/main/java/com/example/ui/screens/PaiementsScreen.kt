@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.PaiementEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.formatMontant
 import com.example.util.remplirModele
@@ -48,7 +49,8 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Gestion des Paiements", fontWeight = FontWeight.Bold) },
+                title = { Text("Paiements", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }

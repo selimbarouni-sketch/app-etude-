@@ -24,6 +24,7 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.data.local.entity.SeanceEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -75,6 +76,7 @@ fun AccueilScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+                    RaccourcisNavigation()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface

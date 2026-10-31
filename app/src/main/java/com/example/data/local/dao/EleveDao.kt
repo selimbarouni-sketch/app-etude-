@@ -23,8 +23,22 @@ interface EleveDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEleve(eleve: EleveEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEleves(eleves: List<EleveEntity>)
+
     @Update
     suspend fun updateEleve(eleve: EleveEntity)
+
+    /** Place plusieurs élèves dans un groupe (un élève n'appartient qu'à un groupe). */
+    @Query("UPDATE eleves SET groupe = :nomGroupe WHERE id IN (:ids)")
+    suspend fun affecterAuGroupe(ids: List<Int>, nomGroupe: String)
+
+    @Query("UPDATE eleves SET groupe = NULL WHERE id = :eleveId")
+    suspend fun retirerDuGroupe(eleveId: Int)
+
+    /** Renommer un groupe : ses élèves suivent. Avec nouveauNom NULL, ils deviennent "sans groupe". */
+    @Query("UPDATE eleves SET groupe = :nouveauNom WHERE groupe = :ancienNom COLLATE NOCASE")
+    suspend fun renommerGroupe(ancienNom: String, nouveauNom: String?)
 
     @Delete
     suspend fun deleteEleve(eleve: EleveEntity)

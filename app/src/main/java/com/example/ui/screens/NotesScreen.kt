@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.DossierNoteEntity
 import com.example.data.local.entity.NoteEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -52,6 +53,7 @@ fun NotesScreen(viewModel: ProfViewModel) {
                     IconButton(onClick = { showAddDossierDialog = true }) {
                         Icon(Icons.Default.CreateNewFolder, contentDescription = "Nouveau dossier", tint = PrimaryBlue)
                     }
+                    RaccourcisNavigation()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )

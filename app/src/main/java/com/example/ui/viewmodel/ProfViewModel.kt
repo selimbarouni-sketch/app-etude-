@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
@@ -47,11 +48,25 @@ fun combinerDateHeure(dateMs: Long, heure: String): Long {
     return debutDuJour(dateMs) + h * 3_600_000L + m * 60_000L
 }
 
+/** Saisie rapide d'un nouvel élève depuis l'écran Groupes. */
+data class NouvelEleve(val prenom: String, val nom: String, val telephone: String = "", val classe: String = "")
+
 private const val RAPPEL_AVANT_MS = 60L * 60 * 1000 // rappel 1 h avant
 
 class ProfViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: ProfRepository = ProfRepository(AppDatabase.getInstance(application))
+
+    // Style d'affichage (Classique / Chic) : enregistré dans les préférences du téléphone
+    // pour ne pas modifier la base de données.
+    private val prefsApparence = application.getSharedPreferences("apparence", Context.MODE_PRIVATE)
+    private val _styleChic = MutableStateFlow(prefsApparence.getBoolean("style_chic", false))
+    val styleChic: StateFlow<Boolean> = _styleChic.asStateFlow()
+
+    fun setStyleChic(chic: Boolean) {
+        prefsApparence.edit().putBoolean("style_chic", chic).apply()
+        _styleChic.value = chic
+    }
 
     init {
         viewModelScope.launch {
@@ -183,17 +198,25 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
 
     // ACTIONS: GROUPES
     fun addGroupe(nom: String, jourSemaine: String, heureDebut: String, heureFin: String, lieu: String, remarque: String = "") {
+        creerGroupe(nom, jourSemaine, heureDebut, heureFin, lieu, remarque) {}
+    }
+
+    /** Crée un groupe puis appelle [onCree] avec le groupe enregistré (pour enchaîner sur l'ajout d'élèves). */
+    fun creerGroupe(
+        nom: String, jourSemaine: String, heureDebut: String, heureFin: String, lieu: String, remarque: String = "",
+        onCree: (GroupeEntity) -> Unit
+    ) {
         viewModelScope.launch {
-            repository.addGroupe(
-                GroupeEntity(
-                    nom = nom.trim(),
-                    jourSemaine = jourSemaine.trim(),
-                    heureDebut = heureDebut.trim(),
-                    heureFin = heureFin.trim(),
-                    lieu = lieu.trim(),
-                    remarque = remarque.trim()
-                )
+            val groupe = GroupeEntity(
+                nom = nom.trim(),
+                jourSemaine = jourSemaine.trim(),
+                heureDebut = heureDebut.trim(),
+                heureFin = heureFin.trim(),
+                lieu = lieu.trim(),
+                remarque = remarque.trim()
             )
+            val id = repository.addGroupe(groupe)
+            onCree(groupe.copy(id = id.toInt()))
         }
     }
 
@@ -203,6 +226,28 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteGroupe(groupe: GroupeEntity) {
         viewModelScope.launch { repository.deleteGroupe(groupe) }
+    }
+
+    /** Ajoute au groupe des élèves existants (ids) et/ou de nouveaux élèves. */
+    fun ajouterElevesAuGroupe(groupe: GroupeEntity, idsExistants: List<Int>, nouveaux: List<NouvelEleve>) {
+        viewModelScope.launch {
+            repository.affecterAuGroupe(idsExistants, groupe.nom)
+            if (nouveaux.isNotEmpty()) {
+                repository.addEleves(nouveaux.map {
+                    EleveEntity(
+                        nom = it.nom.trim(),
+                        prenom = it.prenom.trim(),
+                        telephone = it.telephone.trim(),
+                        classe = it.classe.trim(),
+                        groupe = groupe.nom
+                    )
+                })
+            }
+        }
+    }
+
+    fun retirerDuGroupe(eleve: EleveEntity) {
+        viewModelScope.launch { repository.retirerDuGroupe(eleve.id) }
     }
 
     // AUTO-PROGRAMMING & REMINDERS FOR GROUP SESSIONS

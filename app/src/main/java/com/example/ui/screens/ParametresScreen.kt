@@ -1,7 +1,13 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.CommunicationHelper
 import com.example.util.DatabaseBackupHelper
@@ -31,6 +38,7 @@ import com.example.util.ShareHelper
 fun ParametresScreen(viewModel: ProfViewModel) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
+    val styleChic by viewModel.styleChic.collectAsState()
     val eleves by viewModel.allEleves.collectAsState()
     val seances by viewModel.allSeances.collectAsState()
     val paiements by viewModel.allPaiements.collectAsState()
@@ -49,7 +57,8 @@ fun ParametresScreen(viewModel: ProfViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Paramètres & Outils", fontWeight = FontWeight.Bold) },
+                title = { Text("Paramètres", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
@@ -104,6 +113,26 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                             }
                         )
                     }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                // Choix du style : Classique ou Chic
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ApercuStyle(
+                        titre = "Classique",
+                        description = "Bleu, moderne",
+                        couleurs = listOf(Color(0xFF1565C0), Color(0xFFF4F6F9), Color(0xFF2E7D32)),
+                        selectionne = !styleChic,
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.setStyleChic(false) }
+                    )
+                    ApercuStyle(
+                        titre = "Chic",
+                        description = "Ivoire, bleu nuit et or",
+                        couleurs = listOf(Color(0xFF1F2A44), Color(0xFFF7F3EC), Color(0xFFB08D57)),
+                        selectionne = styleChic,
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.setStyleChic(true) }
+                    )
                 }
             }
 
@@ -374,6 +403,39 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                 showPdfGeneratorDialog = false
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ApercuStyle(
+    titre: String,
+    description: String,
+    couleurs: List<Color>,
+    selectionne: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    OutlinedCard(
+        onClick = onClick,
+        modifier = modifier,
+        border = BorderStroke(if (selectionne) 2.dp else 1.dp, if (selectionne) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                couleurs.forEach { c ->
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .border(1.dp, Color.Black.copy(alpha = 0.1f), CircleShape)
+                    )
+                }
+            }
+            Text(titre, fontWeight = FontWeight.Bold)
+            Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
