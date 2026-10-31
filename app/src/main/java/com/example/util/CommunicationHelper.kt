@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import java.net.URLEncoder
 
 object CommunicationHelper {
 
@@ -37,8 +36,12 @@ object CommunicationHelper {
 
     fun envoyerWhatsapp(context: Context, phone: String, message: String) {
         if (phone.isBlank()) return
-        val cleanPhone = phone.replace(" ", "").replace("-", "").replace("+", "")
-        val encodedMessage = try { URLEncoder.encode(message, "UTF-8") } catch (e: Exception) { "" }
+        var cleanPhone = phone.filter { it.isDigit() }
+        if (cleanPhone.startsWith("00")) cleanPhone = cleanPhone.drop(2)
+        // Numéro tunisien local à 8 chiffres : WhatsApp exige l'indicatif pays (216)
+        if (cleanPhone.length == 8) cleanPhone = "216$cleanPhone"
+        // URLEncoder encode les espaces en "+", que WhatsApp affiche tels quels
+        val encodedMessage = Uri.encode(message)
         val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage")
         val intent = Intent(Intent.ACTION_VIEW, uri)
         try {
@@ -64,11 +67,12 @@ object CommunicationHelper {
 
         // Launch WhatsApp app
         val intent = context.packageManager.getLaunchIntentForPackage("com.whatsapp")
-        if (intent != null) {
+            ?: context.packageManager.getLaunchIntentForPackage("com.whatsapp.w4b")
+            ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://web.whatsapp.com"))
+        try {
             context.startActivity(intent)
-        } else {
-            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://web.whatsapp.com"))
-            context.startActivity(webIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Impossible d'ouvrir WhatsApp", Toast.LENGTH_SHORT).show()
         }
     }
 

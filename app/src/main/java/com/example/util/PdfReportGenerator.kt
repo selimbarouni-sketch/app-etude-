@@ -21,7 +21,9 @@ object PdfReportGenerator {
         eleve: EleveEntity,
         seances: List<SeanceEntity>,
         paiements: List<PaiementEntity>,
-        devise: String = "TND"
+        devise: String = "TND",
+        seancesParPaiement: Int = 4,
+        nomApp: String = "ProfSuivi"
     ): File? {
         val pdfDocument = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4
@@ -54,7 +56,7 @@ object PdfReportGenerator {
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
         var y = 50f
-        canvas.drawText("ProfSuivi - Rapport Élève", 40f, y, paintTitle)
+        canvas.drawText("$nomApp - Rapport Élève", 40f, y, paintTitle)
         y += 20f
         paintText.textSize = 10f
         canvas.drawText("Généré le ${dateFormat.format(Date())}", 40f, y, paintText)
@@ -69,7 +71,7 @@ object PdfReportGenerator {
         y += 18f
         canvas.drawText("Téléphone : ${eleve.telephone}", 40f, y, paintText)
         y += 18f
-        canvas.drawText("Séances cycle actuel : ${eleve.sessionsInCurrentCycle} / 4", 40f, y, paintText)
+        canvas.drawText("Séances cycle actuel : ${eleve.sessionsInCurrentCycle} / $seancesParPaiement", 40f, y, paintText)
         y += 18f
         canvas.drawText("Total séances réalisées : ${eleve.totalSeancesRealisees}", 40f, y, paintText)
         y += 30f
@@ -98,11 +100,11 @@ object PdfReportGenerator {
                 else -> s.statut
             }
             canvas.drawText(dateStr, 40f, y, paintText)
-            canvas.drawText("${s.heure} (${s.dureeHeures}h)", 150f, y, paintText)
+            canvas.drawText("${s.heure} (${formatDuree(s.dureeHeures)}h)", 150f, y, paintText)
             canvas.drawText(statusStr, 300f, y, paintText)
             canvas.drawText(s.commentaire.take(20), 400f, y, paintText)
             y += 18f
-            if (y > 750f) break
+            if (y > 520f) break // garder de la place pour les paiements
         }
 
         y += 15f
@@ -122,31 +124,32 @@ object PdfReportGenerator {
         y += 18f
 
         for (p in paiements.take(8)) {
+            if (y > 800f) break
             canvas.drawText(dateFormat.format(Date(p.dateEpochMs)), 40f, y, paintText)
-            canvas.drawText("${p.montant} $devise", 180f, y, paintText)
+            canvas.drawText("${formatMontant(p.montant)} $devise", 180f, y, paintText)
             canvas.drawText(p.modePaiement, 300f, y, paintText)
             canvas.drawText(p.observation.take(20), 400f, y, paintText)
             y += 18f
         }
 
         y += 15f
-        canvas.drawText("Total encaissé pour cet élève : $totalPaye $devise", 40f, y, paintSubTitle)
+        canvas.drawText("Total encaissé pour cet élève : ${formatMontant(totalPaye)} $devise", 40f, y, paintSubTitle)
 
         pdfDocument.finishPage(page)
 
         val dir = File(context.cacheDir, "reports")
         if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "Rapport_${eleve.nom}_${eleve.prenom}.pdf")
+        val nomFichier = "Rapport_${eleve.nom}_${eleve.prenom}".replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+        val file = File(dir, "$nomFichier.pdf")
 
         return try {
-            val fos = FileOutputStream(file)
-            pdfDocument.writeTo(fos)
-            pdfDocument.close()
-            fos.close()
+            FileOutputStream(file).use { pdfDocument.writeTo(it) }
             file
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        } finally {
+            pdfDocument.close()
         }
     }
 

@@ -5,31 +5,29 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.PaiementEntity
 import com.example.data.local.entity.SeanceEntity
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 object ExcelCsvExporter {
 
-    fun exportElevesToCsv(context: Context, eleves: List<EleveEntity>): File? {
-        val sb = StringBuilder()
-        sb.append("ID;Nom;Prénom;Téléphone;Classe;Groupe;Date Inscription;Séances Cycle;Total Séances;Observation\n")
-        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+    // BOM UTF-8 : sans lui, Excel affiche mal les accents (é, è, à…)
+    private const val BOM = "﻿"
 
-        for (e in eleves) {
-            val dateStr = sdf.format(Date(e.dateInscriptionEpochMs))
-            sb.append("${e.id};\"${e.nom}\";\"${e.prenom}\";\"${e.telephone}\";\"${e.classe}\";\"${e.groupe ?: ""}\";\"$dateStr\";${e.sessionsInCurrentCycle};${e.totalSeancesRealisees};\"${e.observation}\"\n")
-        }
+    /** Échappe une valeur CSV (guillemets, points-virgules, retours à la ligne). */
+    private fun c(value: Any?): String {
+        val s = value?.toString() ?: ""
+        return "\"" + s.replace("\"", "\"\"") + "\""
+    }
 
+    private fun ligne(vararg values: Any?): String = values.joinToString(";") { c(it) } + "\r\n"
+
+    private fun ecrire(context: Context, nomFichier: String, contenu: String): File? {
         val dir = File(context.cacheDir, "csv")
         if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "Export_Eleves.csv")
-
+        val file = File(dir, nomFichier)
         return try {
-            val fos = FileOutputStream(file)
-            fos.write(sb.toString().toByteArray(Charsets.UTF_8))
-            fos.close()
+            file.writeText(BOM + contenu, Charsets.UTF_8)
             file
         } catch (e: Exception) {
             e.printStackTrace()
@@ -37,59 +35,39 @@ object ExcelCsvExporter {
         }
     }
 
-    fun exportSeancesToCsv(context: Context, seances: List<SeanceEntity>): File? {
-        val sb = StringBuilder()
-        sb.append("ID;ID Élève;Nom Élève;Date;Heure;Durée (h);Statut;Commentaire\n")
+    fun exportElevesToCsv(context: Context, eleves: List<EleveEntity>): File? {
         val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+        val sb = StringBuilder()
+        sb.append(ligne("ID", "Nom", "Prénom", "Téléphone", "Classe", "Groupe", "Date Inscription", "Séances Cycle", "Total Séances", "Observation"))
+        for (e in eleves) {
+            sb.append(ligne(e.id, e.nom, e.prenom, e.telephone, e.classe, e.groupe ?: "", sdf.format(Date(e.dateInscriptionEpochMs)), e.sessionsInCurrentCycle, e.totalSeancesRealisees, e.observation))
+        }
+        return ecrire(context, "Export_Eleves.csv", sb.toString())
+    }
 
+    fun exportSeancesToCsv(context: Context, seances: List<SeanceEntity>): File? {
+        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+        val sb = StringBuilder()
+        sb.append(ligne("ID", "ID Élève", "Nom Élève", "Groupe", "Date", "Heure", "Durée (h)", "Statut", "Commentaire"))
         for (s in seances) {
-            val dateStr = sdf.format(Date(s.dateEpochMs))
-            val statutStr = when(s.statut) {
+            val statutStr = when (s.statut) {
                 "P" -> "Présent"
                 "A" -> "Absent"
                 "R" -> "Retard"
                 else -> s.statut
             }
-            sb.append("${s.id};${s.eleveId};\"${s.nomEleveCache}\";\"$dateStr\";\"${s.heure}\";${s.dureeHeures};\"$statutStr\";\"${s.commentaire}\"\n")
+            sb.append(ligne(s.id, s.eleveId, s.nomEleveCache, s.groupeCache, sdf.format(Date(s.dateEpochMs)), s.heure, formatDuree(s.dureeHeures), statutStr, s.commentaire))
         }
-
-        val dir = File(context.cacheDir, "csv")
-        if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "Export_Seances.csv")
-
-        return try {
-            val fos = FileOutputStream(file)
-            fos.write(sb.toString().toByteArray(Charsets.UTF_8))
-            fos.close()
-            file
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        return ecrire(context, "Export_Seances.csv", sb.toString())
     }
 
     fun exportPaiementsToCsv(context: Context, paiements: List<PaiementEntity>, devise: String = "TND"): File? {
-        val sb = StringBuilder()
-        sb.append("ID;ID Élève;Nom Élève;Date;Montant ($devise);Mode Paiement;Nb Séances Réglées;Observation\n")
         val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-
+        val sb = StringBuilder()
+        sb.append(ligne("ID", "ID Élève", "Nom Élève", "Date", "Montant ($devise)", "Mode Paiement", "Nb Séances Réglées", "Observation"))
         for (p in paiements) {
-            val dateStr = sdf.format(Date(p.dateEpochMs))
-            sb.append("${p.id};${p.eleveId};\"${p.nomEleveCache}\";\"$dateStr\";${p.montant};\"${p.modePaiement}\";${p.nbSeancesReglees};\"${p.observation}\"\n")
+            sb.append(ligne(p.id, p.eleveId, p.nomEleveCache, sdf.format(Date(p.dateEpochMs)), formatMontant(p.montant), p.modePaiement, p.nbSeancesReglees, p.observation))
         }
-
-        val dir = File(context.cacheDir, "csv")
-        if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "Export_Paiements.csv")
-
-        return try {
-            val fos = FileOutputStream(file)
-            fos.write(sb.toString().toByteArray(Charsets.UTF_8))
-            fos.close()
-            file
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        return ecrire(context, "Export_Paiements.csv", sb.toString())
     }
 }

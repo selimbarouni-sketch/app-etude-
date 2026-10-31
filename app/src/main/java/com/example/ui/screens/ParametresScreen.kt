@@ -24,6 +24,7 @@ import com.example.util.CommunicationHelper
 import com.example.util.DatabaseBackupHelper
 import com.example.util.ExcelCsvExporter
 import com.example.util.PdfReportGenerator
+import com.example.util.ShareHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +40,7 @@ fun ParametresScreen(viewModel: ProfViewModel) {
     var dureeParDefaut by remember(settings) { mutableStateOf(settings.dureeParDefautHeures.toString()) }
     var devise by remember(settings) { mutableStateOf(settings.devise) }
     var smsTemplate by remember(settings) { mutableStateOf(settings.smsTemplateRappel) }
+    var smsTemplatePaiement by remember(settings) { mutableStateOf(settings.smsTemplatePaiement) }
     var darkMode by remember(settings) { mutableStateOf(settings.modeSombre) }
 
     var showWhatsAppGroupDialog by remember { mutableStateOf(false) }
@@ -150,16 +152,17 @@ fun ParametresScreen(viewModel: ProfViewModel) {
 
                         Button(
                             onClick = {
-                                val sCount = seancesParPaiement.toIntOrNull() ?: 4
-                                val tForfait = tarifForfait.toDoubleOrNull() ?: 100.0
-                                val dHeures = dureeParDefaut.toFloatOrNull() ?: 2.0f
+                                val sCount = (seancesParPaiement.trim().toIntOrNull() ?: 4).coerceAtLeast(1)
+                                val tForfait = tarifForfait.replace(',', '.').trim().toDoubleOrNull() ?: 100.0
+                                val dHeures = dureeParDefaut.replace(',', '.').trim().toFloatOrNull() ?: 2.0f
                                 viewModel.saveSettings(
                                     settings.copy(
                                         seancesParPaiement = sCount,
                                         tarifForfait = tForfait,
                                         dureeParDefautHeures = dHeures,
-                                        devise = devise,
+                                        devise = devise.trim().ifBlank { "TND" },
                                         smsTemplateRappel = smsTemplate,
+                                        smsTemplatePaiement = smsTemplatePaiement,
                                         modeSombre = darkMode
                                     )
                                 )
@@ -196,6 +199,30 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        OutlinedTextField(
+                            value = smsTemplatePaiement,
+                            onValueChange = { smsTemplatePaiement = it },
+                            label = { Text("Modèle de rappel de paiement") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "Mots-clés supportés : {prenom}, {nom}, {classe}, {montant}, {devise}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        // Correction : ces modèles n'étaient enregistrés que via le bouton de la section Tarifs
+                        Button(
+                            onClick = {
+                                viewModel.saveSettings(settings.copy(smsTemplateRappel = smsTemplate, smsTemplatePaiement = smsTemplatePaiement))
+                                Toast.makeText(context, "Modèles enregistrés !", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Enregistrer les modèles")
+                        }
                     }
                 }
             }
@@ -242,7 +269,8 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                     OutlinedButton(
                         onClick = {
                             val f = ExcelCsvExporter.exportElevesToCsv(context, eleves)
-                            if (f != null) Toast.makeText(context, "Export CSV Élèves généré : ${f.name}", Toast.LENGTH_LONG).show()
+                            if (f != null) ShareHelper.partagerFichier(context, f, "text/csv", "Exporter les élèves")
+                            else Toast.makeText(context, "Erreur lors de l'export", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -254,13 +282,27 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                     OutlinedButton(
                         onClick = {
                             val f = ExcelCsvExporter.exportSeancesToCsv(context, seances)
-                            if (f != null) Toast.makeText(context, "Export CSV Séances généré : ${f.name}", Toast.LENGTH_LONG).show()
+                            if (f != null) ShareHelper.partagerFichier(context, f, "text/csv", "Exporter les séances")
+                            else Toast.makeText(context, "Erreur lors de l'export", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.TableChart, contentDescription = null, tint = StatusGreen)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Exporter Séances (Excel / CSV)")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val f = ExcelCsvExporter.exportPaiementsToCsv(context, paiements, settings.devise)
+                            if (f != null) ShareHelper.partagerFichier(context, f, "text/csv", "Exporter les paiements")
+                            else Toast.makeText(context, "Erreur lors de l'export", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.TableChart, contentDescription = null, tint = StatusGreen)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Exporter Paiements (Excel / CSV)")
                     }
                 }
             }
@@ -278,7 +320,10 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                             onClick = {
                                 val file = DatabaseBackupHelper.exportDatabase(context)
                                 if (file != null) {
-                                    Toast.makeText(context, "Sauvegarde créée dans : ${file.name}", Toast.LENGTH_LONG).show()
+                                    // Partager vers Drive / e-mail pour garder une copie hors du téléphone
+                                    ShareHelper.partagerFichier(context, file, "application/octet-stream", "Enregistrer la sauvegarde")
+                                } else {
+                                    Toast.makeText(context, "Erreur lors de la sauvegarde", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -317,9 +362,12 @@ fun ParametresScreen(viewModel: ProfViewModel) {
             onGenerate = { eleve ->
                 val eleveSeances = seances.filter { it.eleveId == eleve.id }
                 val elevePaiements = paiements.filter { it.eleveId == eleve.id }
-                val file = PdfReportGenerator.generateEleveRapportPdf(context, eleve, eleveSeances, elevePaiements, settings.devise)
+                val file = PdfReportGenerator.generateEleveRapportPdf(
+                    context, eleve, eleveSeances, elevePaiements, settings.devise, settings.seancesParPaiement,
+                    context.getString(com.example.R.string.app_name)
+                )
                 if (file != null) {
-                    Toast.makeText(context, "Rapport PDF créé : ${file.name}", Toast.LENGTH_LONG).show()
+                    ShareHelper.partagerFichier(context, file, "application/pdf", "Partager le rapport PDF")
                 } else {
                     Toast.makeText(context, "Erreur de génération PDF", Toast.LENGTH_SHORT).show()
                 }
@@ -435,7 +483,7 @@ fun PdfGeneratorDialog(
                 },
                 enabled = selectedEleve != null
             ) {
-                Text("Télécharger PDF")
+                Text("Générer le PDF")
             }
         },
         dismissButton = {

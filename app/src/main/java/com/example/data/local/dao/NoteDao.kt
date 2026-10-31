@@ -35,4 +35,8 @@ interface NoteDao {
 
     @Delete
     suspend fun deleteDossier(dossier: DossierNoteEntity)
+
+    /** Les notes d'un dossier supprimé restaient orphelines et invisibles dans les onglets. */
+    @Query("UPDATE notes SET dossierId = NULL WHERE dossierId = :dossierId")
+    suspend fun detacherNotesDuDossier(dossierId: Int)
 }

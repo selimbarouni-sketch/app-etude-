@@ -9,10 +9,10 @@ import com.example.data.local.entity.PaiementEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.data.local.entity.SeanceEntity
 import com.example.data.local.entity.SettingsEntity
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import java.util.Calendar
 
 class ProfRepository(private val db: AppDatabase) {
 
@@ -55,16 +55,6 @@ class ProfRepository(private val db: AppDatabase) {
     // RENDEZ-VOUS
     val allRendezVous: Flow<List<RendezVousEntity>> = rdvDao.getAllRendezVous()
 
-    fun getRendezVousAujourdhui(): Flow<List<RendezVousEntity>> {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val startMs = cal.timeInMillis
-        val endMs = startMs + 86400000L - 1L
-        return rdvDao.getRendezVousAujourdhui(startMs, endMs)
-    }
 
     suspend fun addRendezVous(rdv: RendezVousEntity): Long = rdvDao.insertRendezVous(rdv)
 
@@ -77,34 +67,26 @@ class ProfRepository(private val db: AppDatabase) {
 
     fun getSeancesForEleve(eleveId: Int): Flow<List<SeanceEntity>> = seanceDao.getSeancesForEleve(eleveId)
 
-    fun getSeancesAujourdhui(): Flow<List<SeanceEntity>> {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val startMs = cal.timeInMillis
-        val endMs = startMs + 86400000L - 1L
-        return seanceDao.getSeancesAujourdhui(startMs, endMs)
-    }
 
-    suspend fun addSeanceAndIncrementCount(seance: SeanceEntity) {
+    private fun estComptee(seance: SeanceEntity) = seance.statut == "P" || seance.statut == "R"
+
+    suspend fun addSeanceAndIncrementCount(seance: SeanceEntity) = db.withTransaction {
         seanceDao.insertSeance(seance)
-        if (seance.statut == "P" || seance.statut == "R") {
-            eleveDao.incrementSessionCount(seance.eleveId)
-        }
+        if (estComptee(seance)) eleveDao.incrementSessionCount(seance.eleveId)
     }
 
-    suspend fun addBatchSeances(seances: List<SeanceEntity>) {
+    suspend fun addBatchSeances(seances: List<SeanceEntity>) = db.withTransaction {
         seanceDao.insertSeances(seances)
         for (seance in seances) {
-            if (seance.statut == "P" || seance.statut == "R") {
-                eleveDao.incrementSessionCount(seance.eleveId)
-            }
+            if (estComptee(seance)) eleveDao.incrementSessionCount(seance.eleveId)
         }
     }
 
-    suspend fun deleteSeance(seance: SeanceEntity) = seanceDao.deleteSeance(seance)
+    /** Correction : supprimer une séance ne décrémentait pas le compteur de l'élève. */
+    suspend fun deleteSeance(seance: SeanceEntity) = db.withTransaction {
+        seanceDao.deleteSeance(seance)
+        if (estComptee(seance)) eleveDao.decrementSessionCount(seance.eleveId)
+    }
 
     // PAIEMENTS
     val allPaiements: Flow<List<PaiementEntity>> = paiementDao.getAllPaiements()
@@ -128,8 +110,12 @@ class ProfRepository(private val db: AppDatabase) {
             nbSeancesReglees = nbSeances,
             observation = observation
         )
-        paiementDao.insertPaiement(paiement)
-        eleveDao.resetSessionCycle(eleveId)
+        db.withTransaction {
+            paiementDao.insertPaiement(paiement)
+            // Correction : on retire seulement les séances payées. Avant, le compteur
+            // était remis à 0 et les séances en plus (ex. 6 faites, 4 payées) étaient perdues.
+            eleveDao.deduireSeancesPayees(eleveId, nbSeances)
+        }
     }
 
     // NOTES
@@ -146,7 +132,10 @@ class ProfRepository(private val db: AppDatabase) {
 
     suspend fun addDossier(nom: String): Long = noteDao.insertDossier(DossierNoteEntity(nom = nom))
 
-    suspend fun deleteDossier(dossier: DossierNoteEntity) = noteDao.deleteDossier(dossier)
+    suspend fun deleteDossier(dossier: DossierNoteEntity) = db.withTransaction {
+        noteDao.detacherNotesDuDossier(dossier.id)
+        noteDao.deleteDossier(dossier)
+    }
 
     // SETTINGS
     val settingsFlow: Flow<SettingsEntity> = settingsDao.getSettings().map {

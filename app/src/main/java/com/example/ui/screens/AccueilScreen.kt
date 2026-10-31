@@ -96,7 +96,8 @@ fun AccueilScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 88.dp) // ne pas masquer le dernier élément sous le bouton flottant
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
 
@@ -167,7 +168,7 @@ fun AccueilScreen(
                             }
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            allGroupes.take(3).forEach { groupe ->
+                            allGroupes.forEach { groupe ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -184,7 +185,7 @@ fun AccueilScreen(
                                             viewModel.programmerProchaineSeanceGroupe(groupe)
                                             android.widget.Toast.makeText(
                                                 context,
-                                                "Séance de ${groupe.nom} auto-programmée avec rappel !",
+                                                "Prochaine séance de ${groupe.nom} ajoutée à l'agenda (rappel 1 h avant)",
                                                 android.widget.Toast.LENGTH_SHORT
                                             ).show()
                                         },
@@ -343,7 +344,7 @@ fun AccueilScreen(
                 }
             } else {
                 items(eleves.take(5)) { eleve ->
-                    EleveQuickRow(eleve = eleve, onClick = onNavigateToEleves)
+                    EleveQuickRow(eleve = eleve, limitCycle = settings.seancesParPaiement, onClick = onNavigateToEleves)
                 }
             }
 
@@ -436,7 +437,7 @@ fun RdvItemRow(rdv: RendezVousEntity) {
                     fontSize = 15.sp
                 )
                 Text(
-                    text = "${rdv.lieu} • Durée: ${rdv.dureeHeures}h",
+                    text = "${rdv.lieu} • Durée : ${com.example.util.formatDuree(rdv.dureeHeures)}h",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -446,7 +447,7 @@ fun RdvItemRow(rdv: RendezVousEntity) {
 }
 
 @Composable
-fun EleveQuickRow(eleve: EleveEntity, onClick: () -> Unit) {
+fun EleveQuickRow(eleve: EleveEntity, limitCycle: Int = 4, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -486,11 +487,11 @@ fun EleveQuickRow(eleve: EleveEntity, onClick: () -> Unit) {
                 )
             }
             Badge(
-                containerColor = if (eleve.sessionsInCurrentCycle >= 4) StatusRed else StatusGreenBg,
-                contentColor = if (eleve.sessionsInCurrentCycle >= 4) Color.White else StatusGreen
+                containerColor = if (eleve.sessionsInCurrentCycle >= limitCycle) StatusRed else StatusGreenBg,
+                contentColor = if (eleve.sessionsInCurrentCycle >= limitCycle) Color.White else StatusGreen
             ) {
                 Text(
-                    text = "${eleve.sessionsInCurrentCycle}/4",
+                    text = "${eleve.sessionsInCurrentCycle}/$limitCycle",
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }

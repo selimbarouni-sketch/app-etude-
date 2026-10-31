@@ -14,16 +14,40 @@ import com.example.data.local.entity.SeanceEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.data.repository.ProfRepository
 import com.example.util.NotificationHelper
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+
+private const val JOUR_MS = 24L * 60 * 60 * 1000
+
+private fun debutDuJour(ms: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = ms
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+/** Combine une date (jour) et une heure "HH:mm" en un instant précis. */
+fun combinerDateHeure(dateMs: Long, heure: String): Long {
+    val parts = heure.trim().split(":", "h", "H")
+    val h = parts.getOrNull(0)?.trim()?.toIntOrNull()?.coerceIn(0, 23) ?: 0
+    val m = parts.getOrNull(1)?.trim()?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+    return debutDuJour(dateMs) + h * 3_600_000L + m * 60_000L
+}
+
+private const val RAPPEL_AVANT_MS = 60L * 60 * 1000 // rappel 1 h avant
 
 class ProfViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,27 +62,35 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
     // State flows
     val allGroupes: StateFlow<List<GroupeEntity>> = repository.allGroupes.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
     val allEleves: StateFlow<List<EleveEntity>> = repository.allEleves.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
     val allRendezVous: StateFlow<List<RendezVousEntity>> = repository.allRendezVous.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
-    val rendezVousAujourdhui: StateFlow<List<RendezVousEntity>> = repository.getRendezVousAujourdhui().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    // "Aujourd'hui" est recalculé à chaque minute : avant, la date était figée au
+    // lancement de l'app et les listes du jour devenaient fausses après minuit.
+    private val debutJourCourant: Flow<Long> = flow {
+        while (true) {
+            emit(debutDuJour(System.currentTimeMillis()))
+            delay(60_000)
+        }
+    }.distinctUntilChanged()
+
+    val rendezVousAujourdhui: StateFlow<List<RendezVousEntity>> =
+        combine(repository.allRendezVous, debutJourCourant) { rdvs, debut ->
+            rdvs.filter { it.dateEpochMs in debut until debut + JOUR_MS }.sortedBy { it.heure }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allSeances: StateFlow<List<SeanceEntity>> = repository.allSeances.stateIn(
         scope = viewModelScope,
@@ -66,11 +98,10 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
-    val seancesAujourdhui: StateFlow<List<SeanceEntity>> = repository.getSeancesAujourdhui().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val seancesAujourdhui: StateFlow<List<SeanceEntity>> =
+        combine(repository.allSeances, debutJourCourant) { seances, debut ->
+            seances.filter { it.dateEpochMs in debut until debut + JOUR_MS }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allPaiements: StateFlow<List<PaiementEntity>> = repository.allPaiements.stateIn(
         scope = viewModelScope,
@@ -98,7 +129,7 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings: StateFlow<SettingsEntity> = repository.settingsFlow.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = SettingsEntity()
     )
 
@@ -178,40 +209,48 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
     fun programmerProchaineSeanceGroupe(groupe: GroupeEntity, baseTimeEpochMs: Long = System.currentTimeMillis()) {
         viewModelScope.launch {
             val nextSlotMs = calculateNextWeeklySlotMs(groupe.jourSemaine, groupe.heureDebut, baseTimeEpochMs)
-            
-            // 1. Create RendezVous for the group
+            val dureeHeures = dureeEntre(groupe.heureDebut, groupe.heureFin) ?: settings.value.dureeParDefautHeures
+
+            // Évite de créer deux fois le même rendez-vous si on appuie plusieurs fois
+            val nomRdv = "Groupe : ${groupe.nom}"
+            val dejaProgramme = allRendezVous.value.any { it.nomEleve == nomRdv && it.dateEpochMs == nextSlotMs }
+            if (dejaProgramme) return@launch
+
             val rdvId = repository.addRendezVous(
                 RendezVousEntity(
-                    nomEleve = "Groupe : ${groupe.nom}",
+                    nomEleve = nomRdv,
                     dateEpochMs = nextSlotMs,
                     heure = groupe.heureDebut,
-                    dureeHeures = 2.0f,
+                    dureeHeures = dureeHeures,
                     lieu = groupe.lieu,
                     remarque = "Séance hebdomadaire auto-programmée (${groupe.jourSemaine} ${groupe.heureDebut}-${groupe.heureFin})"
                 )
             )
 
-            // 2. Update next session date in group entity
             repository.updateGroupe(groupe.copy(prochaineSeanceEpochMs = nextSlotMs))
 
-            // 3. Schedule notification reminder
-            val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-            val dateStr = dateFormat.format(nextSlotMs)
-            
+            val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(nextSlotMs)
             NotificationHelper.programmerNotificationRendezVous(
                 getApplication(),
                 rdvId = rdvId.toInt(),
                 nomEleve = "Groupe ${groupe.nom}",
                 heure = "${groupe.heureDebut} ($dateStr)",
-                triggerTimeEpochMs = nextSlotMs - (3600 * 1000) // 1 hour before
+                triggerTimeEpochMs = nextSlotMs - RAPPEL_AVANT_MS
             )
         }
     }
 
-    private fun calculateNextWeeklySlotMs(jourSemaine: String, heureDebut: String, fromMs: Long): Long {
-        val cal = Calendar.getInstance()
-        cal.timeInMillis = fromMs
+    private fun dureeEntre(debut: String, fin: String): Float? {
+        val d = combinerDateHeure(0, debut)
+        val f = combinerDateHeure(0, fin)
+        return if (f > d) (f - d) / 3_600_000f else null
+    }
 
+    /**
+     * Correction : l'ancien calcul ajoutait 7 jours PUIS cherchait le bon jour,
+     * ce qui pouvait programmer la séance jusqu'à 13 jours plus tard.
+     */
+    private fun calculateNextWeeklySlotMs(jourSemaine: String, heureDebut: String, fromMs: Long): Long {
         val dayTarget = when (jourSemaine.lowercase(Locale.FRANCE).trim()) {
             "lundi" -> Calendar.MONDAY
             "mardi" -> Calendar.TUESDAY
@@ -223,41 +262,45 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
             else -> Calendar.SATURDAY
         }
 
-        val parts = heureDebut.split(":")
-        val h = parts.getOrNull(0)?.toIntOrNull() ?: 14
-        val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
-
-        cal.set(Calendar.HOUR_OF_DAY, h)
-        cal.set(Calendar.MINUTE, m)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = combinerDateHeure(fromMs, heureDebut)
+        // Avancer jusqu'au bon jour de la semaine (0 à 6 jours)
+        while (cal.get(Calendar.DAY_OF_WEEK) != dayTarget) {
+            cal.add(Calendar.DAY_OF_YEAR, 1)
+        }
+        // Si c'est aujourd'hui mais que l'heure est passée : semaine suivante
         if (cal.timeInMillis <= fromMs) {
             cal.add(Calendar.DAY_OF_YEAR, 7)
         }
-
-        var count = 0
-        while (cal.get(Calendar.DAY_OF_WEEK) != dayTarget && count < 7) {
-            cal.add(Calendar.DAY_OF_YEAR, 1)
-            count++
-        }
-
         return cal.timeInMillis
     }
 
     // ACTIONS: RENDEZ-VOUS
+    /**
+     * Correction : la date du rendez-vous ne tenait pas compte de l'heure saisie, et le
+     * rappel était programmé "maintenant" (donc jamais déclenché). Le rappel est maintenant
+     * programmé 1 h avant le cours, avec l'identifiant réel du rendez-vous.
+     */
     fun addRendezVous(nomEleve: String, dateEpochMs: Long, heure: String, dureeHeures: Float, lieu: String, remarque: String, eleveId: Int? = null) {
         viewModelScope.launch {
-            repository.addRendezVous(
+            val debutMs = combinerDateHeure(dateEpochMs, heure)
+            val rdvId = repository.addRendezVous(
                 RendezVousEntity(
                     eleveId = eleveId,
                     nomEleve = nomEleve.trim(),
-                    dateEpochMs = dateEpochMs,
-                    heure = heure,
+                    dateEpochMs = debutMs,
+                    heure = heure.trim(),
                     dureeHeures = dureeHeures,
-                    lieu = lieu,
-                    remarque = remarque
+                    lieu = lieu.trim(),
+                    remarque = remarque.trim()
                 )
+            )
+            NotificationHelper.programmerNotificationRendezVous(
+                getApplication(),
+                rdvId = rdvId.toInt(),
+                nomEleve = nomEleve.trim(),
+                heure = heure.trim(),
+                triggerTimeEpochMs = debutMs - RAPPEL_AVANT_MS
             )
         }
     }
@@ -267,7 +310,21 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteRendezVous(rdv: RendezVousEntity) {
-        viewModelScope.launch { repository.deleteRendezVous(rdv) }
+        viewModelScope.launch {
+            repository.deleteRendezVous(rdv)
+            NotificationHelper.annulerNotificationRendezVous(getApplication(), rdv.id)
+        }
+    }
+
+    /** Heure du prochain cours d'un élève (rendez-vous à venir, sinon créneau de son groupe). */
+    fun heureProchainCours(eleve: EleveEntity): String {
+        val now = System.currentTimeMillis()
+        val rdv = allRendezVous.value
+            .filter { it.dateEpochMs >= now && (it.eleveId == eleve.id || (eleve.groupe != null && it.nomEleve == "Groupe : ${eleve.groupe}")) }
+            .minByOrNull { it.dateEpochMs }
+        if (rdv != null) return rdv.heure
+        val groupe = allGroupes.value.firstOrNull { it.nom.equals(eleve.groupe, ignoreCase = true) }
+        return groupe?.heureDebut ?: "l'heure prévue"
     }
 
     // ACTIONS: SEANCES & PRESENCES

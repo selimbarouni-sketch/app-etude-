@@ -19,6 +19,10 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.PaiementEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.ProfViewModel
+import com.example.util.formatMontant
+import com.example.util.remplirModele
+import com.example.util.CommunicationHelper
+import androidx.compose.ui.platform.LocalContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,12 +33,15 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
     val paiements by viewModel.allPaiements.collectAsState()
     val elevesPaiementEnAttente by viewModel.elevesPaiementEnAttente.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val context = LocalContext.current
 
     var selectedEleveForPayment by remember { mutableStateOf<EleveEntity?>(null) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: À réclamer, 1: Historique
 
     val totalEncaisse = paiements.sumOf { it.montant }
-    val totalEnAttente = elevesPaiementEnAttente.size * settings.tarifForfait
+    // Un élève peut devoir plusieurs forfaits (ex. 8 séances avec un forfait de 4)
+    val limite = settings.seancesParPaiement.coerceAtLeast(1)
+    val totalEnAttente = elevesPaiementEnAttente.sumOf { (_, count) -> (count / limite) * settings.tarifForfait }
 
     val dateFormat = SimpleDateFormat("dd/MM/yyyy • HH:mm", Locale.FRANCE)
 
@@ -71,7 +78,7 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "$totalEncaisse ${settings.devise}",
+                            text = "${formatMontant(totalEncaisse)} ${settings.devise}",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = StatusGreen
@@ -89,7 +96,7 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "$totalEnAttente ${settings.devise}",
+                            text = "${formatMontant(totalEnAttente)} ${settings.devise}",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (totalEnAttente > 0) StatusRed else StatusGreen
@@ -167,19 +174,32 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                                                 color = StatusRed
                                             )
                                             Text(
-                                                text = "Forfait à régler: ${settings.tarifForfait} ${settings.devise}",
+                                                text = "Forfait à régler : ${formatMontant(settings.tarifForfait)} ${settings.devise}" + if (count / limite > 1) " (×${count / limite})" else "",
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 13.sp
                                             )
                                         }
 
-                                        Button(
-                                            onClick = { selectedEleveForPayment = eleve },
-                                            colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
-                                        ) {
-                                            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Paiement Reçu")
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Button(
+                                                onClick = { selectedEleveForPayment = eleve },
+                                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
+                                            ) {
+                                                Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Paiement Reçu")
+                                            }
+                                            TextButton(onClick = {
+                                                val msg = remplirModele(
+                                                    settings.smsTemplatePaiement, eleve.prenom, eleve.nom, eleve.classe, "",
+                                                    formatMontant(settings.tarifForfait), settings.devise
+                                                )
+                                                CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, msg)
+                                            }) {
+                                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Rappel", fontSize = 12.sp)
+                                            }
                                         }
                                     }
                                 }
@@ -236,7 +256,7 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                                         }
 
                                         Text(
-                                            text = "+${paiement.montant} ${settings.devise}",
+                                            text = "+${formatMontant(paiement.montant)} ${settings.devise}",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 16.sp,
                                             color = StatusGreen
@@ -274,7 +294,7 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EnregistrerPaiementDialog(
     eleve: EleveEntity,
@@ -284,7 +304,7 @@ fun EnregistrerPaiementDialog(
     onDismiss: () -> Unit,
     onConfirm: (montant: Double, mode: String, obs: String) -> Unit
 ) {
-    var montantText by remember { mutableStateOf(defaultMontant.toString()) }
+    var montantText by remember { mutableStateOf(formatMontant(defaultMontant)) }
     var selectedMode by remember { mutableStateOf("Espèces") }
     var observation by remember { mutableStateOf("") }
 
@@ -296,7 +316,8 @@ fun EnregistrerPaiementDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Ce paiement réinitialisera le compteur de ${eleve.sessionsInCurrentCycle} séances à 0.",
+                    text = "Séances effectuées : ${eleve.sessionsInCurrentCycle}. Ce paiement règle $defaultSeances séance(s)" +
+                        " ; il en restera ${(eleve.sessionsInCurrentCycle - defaultSeances).coerceAtLeast(0)} à payer.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -310,7 +331,7 @@ fun EnregistrerPaiementDialog(
                 )
 
                 Text("Mode de paiement :", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -334,12 +355,12 @@ fun EnregistrerPaiementDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val m = montantText.toDoubleOrNull() ?: defaultMontant
+                    val m = montantText.replace(',', '.').trim().toDoubleOrNull() ?: defaultMontant
                     onConfirm(m, selectedMode, observation)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
             ) {
-                Text("Valider et Réinitialiser")
+                Text("Valider le paiement")
             }
         },
         dismissButton = {

@@ -32,6 +32,10 @@ interface EleveDao {
     @Query("UPDATE eleves SET sessionsInCurrentCycle = sessionsInCurrentCycle + 1, totalSeancesRealisees = totalSeancesRealisees + 1 WHERE id = :eleveId")
     suspend fun incrementSessionCount(eleveId: Int)
 
-    @Query("UPDATE eleves SET sessionsInCurrentCycle = 0 WHERE id = :eleveId")
-    suspend fun resetSessionCycle(eleveId: Int)
+    @Query("UPDATE eleves SET sessionsInCurrentCycle = MAX(sessionsInCurrentCycle - 1, 0), totalSeancesRealisees = MAX(totalSeancesRealisees - 1, 0) WHERE id = :eleveId")
+    suspend fun decrementSessionCount(eleveId: Int)
+
+    /** Retire du cycle les séances payées (au lieu de tout remettre à 0). */
+    @Query("UPDATE eleves SET sessionsInCurrentCycle = MAX(sessionsInCurrentCycle - :nbSeances, 0) WHERE id = :eleveId")
+    suspend fun deduireSeancesPayees(eleveId: Int, nbSeances: Int)
 }
