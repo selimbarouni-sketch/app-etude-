@@ -24,11 +24,26 @@ jobs:
       - name: Compiler l'APK (debug)
         run: ./gradlew --no-configuration-cache assembleDebug
 
-      - name: Tests unitaires
-        run: ./gradlew --no-configuration-cache testDebugUnitTest
-
       - name: Publier l'APK
         uses: actions/upload-artifact@v4
         with:
           name: ProfSuivi-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Tests unitaires
+        run: ./gradlew --no-configuration-cache testDebugUnitTest
+
+      - name: Résumé des tests en échec
+        if: failure()
+        run: |
+          ls app/build/test-results/testDebugUnitTest/*.xml >/dev/null 2>&1 || echo "::error title=Tests::Aucun résultat de test (échec de compilation des tests ?)"
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -f "$f" ] || continue
+            python3 - "$f" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          for tc in ET.parse(sys.argv[1]).getroot().iter("testcase"):
+              for fl in list(tc.findall("failure")) + list(tc.findall("error")):
+                  msg = (fl.get("message") or fl.text or "").replace("\n", " ")[:400]
+                  print(f"::error title={tc.get('classname')}.{tc.get('name')}::{msg}")
+          PY
+          done
