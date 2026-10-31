@@ -336,3 +336,27 @@ textarea.input { resize: vertical; min-height: 90px; }
 .ligne-choix.on { background: var(--primary-soft); }
 :root[data-style="chic"] .ligne-choix.on { background: var(--surface-2); }
 .ligne-eleve { padding: 10px; display: flex; flex-direction: column; gap: 8px; box-shadow: none; }
+
+/* ---------- Écran de verrouillage ---------- */
+.verrou { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; background: var(--bg); }
+.verrou-logo { width: 84px; height: 84px; border-radius: 20px; }
+.verrou-titre { margin: 4px 0 0; font-size: 26px; }
+.verrou-points { display: flex; gap: 14px; margin: 18px 0 6px; }
+.verrou-points span { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--primary); }
+.verrou-points span.plein { background: var(--primary); }
+.verrou-points.erreur span { border-color: var(--red); animation: secoue 0.3s; }
+@keyframes secoue { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.verrou-clavier { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; margin-top: 12px; }
+.verrou-clavier button {
+  width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface);
+  font-size: 24px; font-weight: 500; cursor: pointer; display: grid; place-items: center;
+}
+.verrou-clavier button:last-child { font-size: 16px; font-weight: 600; background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.verrou-clavier button:disabled { opacity: 0.4; cursor: default; }
+.verrou-clavier button:active:not(:disabled) { transform: scale(0.95); }
+:root[data-style="chic"] .verrou-titre { font-family: var(--font-titre); font-size: 34px; }
+
+/* ---------- Bandeau de rappel ---------- */
+.rappel { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius); margin-bottom: 14px;
+  background: var(--orange-soft); color: var(--text); border: 1px solid color-mix(in srgb, var(--orange) 40%, transparent); }
+.rappel svg { color: var(--orange); flex-shrink: 0; }

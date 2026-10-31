@@ -34,6 +34,8 @@ export interface RendezVous {
   dureeHeures: number;
   lieu: string;
   remarque: string;
+  /** Séance annulée : reste visible (barrée), sans rappel */
+  annule?: boolean;
 }
 
 export interface Seance {
@@ -57,6 +59,8 @@ export interface Paiement {
   modePaiement: string;
   nbSeancesReglees: number;
   observation: string;
+  /** false = prévu mais pas encore encaissé (ex. chèque à déposer). Absent = encaissé. */
+  encaisse?: boolean;
 }
 
 export interface Dossier {

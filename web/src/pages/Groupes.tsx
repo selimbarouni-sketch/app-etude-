@@ -3,7 +3,7 @@ import { CalendarPlus, Clock, MapPin, Pencil, Plus, Search, Trash2, UserMinus, U
 import { actions, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { JOURS, formatJourCourt, initiales } from "../utils";
+import { JOURS, formatJourCourt, initiales, libelleCycle } from "../utils";
 
 const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -103,7 +103,7 @@ export default function Groupes() {
                     <div className="bold ellipsis">{e.prenom} {e.nom}</div>
                     <div className="tiny muted">{e.classe} · {e.telephone}</div>
                   </div>
-                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
                   <button className="icon-btn" title="Retirer du groupe" aria-label="Retirer du groupe"
                     onClick={() => { actions.retirerDuGroupe(e.id); toast(`${e.prenom} retiré(e) du groupe`); }}><UserMinus size={17} /></button>
                 </div>

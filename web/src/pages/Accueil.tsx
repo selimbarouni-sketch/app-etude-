@@ -2,12 +2,12 @@ import { AlertTriangle, CalendarDays, CalendarPlus, ClipboardCheck, GraduationCa
 import type { Page } from "../App";
 import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
 import { toast } from "../components";
-import { estAujourdhui, formatDateLongue, formatDuree, formatJourCourt, initiales } from "../utils";
+import { estAujourdhui, formatDateLongue, formatDuree, formatJourCourt, initiales, libelleCycle } from "../utils";
 
 export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => void; ajouterEleve: () => void }) {
   const d = useDonnees();
   const now = Date.now();
-  const rdvJour = d.rendezVous.filter((r) => estAujourdhui(r.date, now)).sort((a, b) => a.date - b.date);
+  const rdvJour = d.rendezVous.filter((r) => !r.annule && estAujourdhui(r.date, now)).sort((a, b) => a.date - b.date);
   const seancesJour = d.seances.filter((s) => estAujourdhui(s.date, now));
   const enAttente = elevesPaiementEnAttente(d);
   const limite = d.reglages.seancesParPaiement;
@@ -114,7 +114,7 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
                 <div className="bold ellipsis">{e.prenom} {e.nom}</div>
                 <div className="small muted ellipsis">{e.classe} · {e.groupe || "Sans groupe"}</div>
               </div>
-              <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+              <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
             </div>
           ))}
         </div>

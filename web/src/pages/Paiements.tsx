@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { CheckCircle2, MessageCircle, Plus, Trash2, Wallet } from "lucide-react";
+import { CheckCircle2, Hourglass, MessageCircle, Pencil, Plus, Wallet } from "lucide-react";
 import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { MODES_PAIEMENT, formatDate, formatMontant, lienWhatsapp, lireNombre, remplirModele } from "../utils";
+import { MODES_PAIEMENT, formatDate, formatMontant, libelleCycle, lienWhatsapp, lireNombre, remplirModele } from "../utils";
 
 export default function Paiements() {
   const d = useDonnees();
@@ -12,12 +12,15 @@ export default function Paiements() {
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [choisir, setChoisir] = useState(false);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
+  const [aModifier, setAModifier] = useState<Paiement | null>(null);
 
   const enAttente = elevesPaiementEnAttente(d);
-  const totalEncaisse = d.paiements.reduce((s, p) => s + p.montant, 0);
+  const estEncaisse = (p: Paiement) => p.encaisse !== false;
+  const totalEncaisse = d.paiements.filter(estEncaisse).reduce((s, p) => s + p.montant, 0);
+  const totalNonEncaisse = d.paiements.filter((p) => !estEncaisse(p)).reduce((s, p) => s + p.montant, 0);
   const totalAttendu = enAttente.reduce((s, e) => s + Math.floor(e.sessionsInCurrentCycle / limite) * tarifForfait, 0);
   const debutMois = new Date(); debutMois.setDate(1); debutMois.setHours(0, 0, 0, 0);
-  const ceMois = d.paiements.filter((p) => p.date >= debutMois.getTime()).reduce((s, p) => s + p.montant, 0);
+  const ceMois = d.paiements.filter((p) => estEncaisse(p) && p.date >= debutMois.getTime()).reduce((s, p) => s + p.montant, 0);
 
   return (
     <>
@@ -29,6 +32,7 @@ export default function Paiements() {
       <div className="grid-stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 16 }}>
         <div className="card stat" style={{ cursor: "default" }}><div className="label">Encaissé ce mois</div><div className="value money" style={{ color: "var(--green)" }}>{formatMontant(ceMois)} <span className="small">{devise}</span></div></div>
         <div className="card stat" style={{ cursor: "default" }}><div className="label">Encaissé au total</div><div className="value money">{formatMontant(totalEncaisse)} <span className="small">{devise}</span></div></div>
+        {totalNonEncaisse > 0 && <div className="card stat" style={{ cursor: "default" }}><div className="label">Pas encore encaissé</div><div className="value money" style={{ color: "var(--orange)" }}>{formatMontant(totalNonEncaisse)} <span className="small">{devise}</span></div></div>}
         <div className="card stat" style={{ cursor: "default" }}><div className="label">Somme attendue</div><div className="value money" style={{ color: totalAttendu ? "var(--red)" : "var(--green)" }}>{formatMontant(totalAttendu)} <span className="small">{devise}</span></div></div>
       </div>
 
@@ -66,14 +70,20 @@ export default function Paiements() {
       ) : (
         <div className="list">
           {[...d.paiements].sort((a, b) => b.date - a.date).map((p) => (
-            <div key={p.id} className="card item">
+            <div key={p.id} className="card item clickable" onClick={() => setAModifier(p)}>
               <div className="grow">
                 <div className="bold ellipsis">{p.nomEleve}</div>
                 <div className="small muted">{formatDate(p.date)} · {p.modePaiement} · {p.nbSeancesReglees} séance(s)</div>
                 {p.observation && <div className="tiny muted">{p.observation}</div>}
+                {!estEncaisse(p) && (
+                  <button className="badge orange" style={{ border: 0, cursor: "pointer", marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
+                    onClick={(ev) => { ev.stopPropagation(); actions.modifierPaiement({ ...p, encaisse: true }); toast("Marqué comme encaissé"); }}>
+                    <Hourglass size={12} />Non encaissé · marquer encaissé
+                  </button>
+                )}
               </div>
-              <span className="money" style={{ color: "var(--green)" }}>+{formatMontant(p.montant)} {devise}</span>
-              <button className="icon-btn" aria-label="Annuler ce paiement" onClick={() => setASupprimer(p)}><Trash2 size={17} /></button>
+              <span className="money" style={{ color: estEncaisse(p) ? "var(--green)" : "var(--orange)" }}>+{formatMontant(p.montant)} {devise}</span>
+              <Pencil size={15} className="muted" />
             </div>
           ))}
         </div>
@@ -86,16 +96,24 @@ export default function Paiements() {
             {[...d.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")).map((e) => (
               <button key={e.id} className="card item clickable" style={{ textAlign: "left", width: "100%" }} onClick={() => { setChoisir(false); setPayer(e); }}>
                 <div className="grow"><div className="bold">{e.prenom} {e.nom}</div><div className="small muted">{e.classe}</div></div>
-                <span className="badge blue">{e.sessionsInCurrentCycle}/{limite}</span>
+                <span className="badge blue">{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
               </button>
             ))}
           </div>
         </Modal>
       )}
       {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} />}
+      {aModifier && (
+        <FormPaiement
+          eleve={d.eleves.find((e) => e.id === aModifier.eleveId) ?? null}
+          paiement={aModifier}
+          onSupprimer={() => { setASupprimer(aModifier); setAModifier(null); }}
+          onClose={() => setAModifier(null)}
+        />
+      )}
       {aSupprimer && (
         <Confirmation
-          titre="Annuler ce paiement ?"
+          titre="Annuler ce versement ?"
           message={`${aSupprimer.nomEleve} — ${formatMontant(aSupprimer.montant)} ${devise} du ${formatDate(aSupprimer.date)}. Les ${aSupprimer.nbSeancesReglees} séances redeviendront à payer.`}
           libelle="Annuler le paiement"
           onConfirm={() => actions.supprimerPaiement(aSupprimer.id)}
@@ -106,37 +124,77 @@ export default function Paiements() {
   );
 }
 
-function FormPaiement({ eleve, onClose }: { eleve: Eleve; onClose: () => void }) {
+/** Nouveau versement, ou modification d'un versement existant. */
+function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve | null; paiement?: Paiement; onClose: () => void; onSupprimer?: () => void }) {
   const d = useDonnees();
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
-  const [montant, setMontant] = useState(String(tarifForfait));
-  const [nb, setNb] = useState(String(seancesParPaiement));
-  const [mode, setMode] = useState(MODES_PAIEMENT[0]);
-  const [obs, setObs] = useState("");
-  const nbSeances = Math.max(0, Math.round(lireNombre(nb, seancesParPaiement)));
-  const reste = Math.max(0, eleve.sessionsInCurrentCycle - nbSeances);
+  const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
+  const [nb, setNb] = useState(paiement?.nbSeancesReglees ?? seancesParPaiement);
+  const [montant, setMontant] = useState(String(paiement?.montant ?? tarifForfait));
+  const [montantModifie, setMontantModifie] = useState(!!paiement);
+  const [mode, setMode] = useState(paiement?.modePaiement ?? MODES_PAIEMENT[0]);
+  const [obs, setObs] = useState(paiement?.observation ?? "");
+  const [encaisse, setEncaisse] = useState(paiement ? paiement.encaisse !== false : true);
+
+  // Séances faites non payées avant ce versement
+  const dues = (eleve?.sessionsInCurrentCycle ?? 0) + (paiement?.nbSeancesReglees ?? 0);
+  const reste = dues - nb;
+  const changerNb = (n: number) => {
+    const v = Math.min(99, Math.max(1, Math.round(n)));
+    setNb(v);
+    if (!montantModifie) setMontant(String(Math.round(prixSeance * v * 100) / 100));
+  };
+  const nom = paiement?.nomEleve ?? `${eleve?.prenom} ${eleve?.nom}`;
 
   return (
     <Modal
-      titre={`Paiement — ${eleve.prenom} ${eleve.nom}`}
+      titre={paiement ? `Modifier le versement — ${nom}` : `Paiement — ${nom}`}
       onClose={onClose}
-      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
+      footer={<>
+        {onSupprimer && <button className="btn ghost" style={{ color: "var(--red)", marginRight: "auto" }} onClick={onSupprimer}>Annuler le versement</button>}
+        <button className="btn secondary" onClick={onClose}>Fermer</button>
         <button className="btn success" onClick={() => {
-          actions.enregistrerPaiement({ eleve, montant: lireNombre(montant, tarifForfait), modePaiement: mode, nbSeances, observation: obs.trim() });
-          toast("Paiement enregistré");
+          const m = lireNombre(montant, prixSeance * nb);
+          if (paiement) {
+            actions.modifierPaiement({ ...paiement, montant: m, modePaiement: mode, nbSeancesReglees: nb, observation: obs.trim(), encaisse });
+            toast("Versement modifié");
+          } else if (eleve) {
+            actions.enregistrerPaiement({ eleve, montant: m, modePaiement: mode, nbSeances: nb, observation: obs.trim(), encaisse });
+            toast("Paiement enregistré");
+          }
           onClose();
-        }}>Valider le paiement</button></>}
+        }}>{paiement ? "Enregistrer" : "Valider le paiement"}</button>
+      </>}
     >
-      <div className="alert blue small">
-        Séances effectuées : <b>{eleve.sessionsInCurrentCycle}</b>. Après ce paiement, il restera <b>{reste}</b> séance(s) à payer.
-      </div>
-      <div className="fields-2">
-        <Field label={`Montant (${devise})`}><input className="input" inputMode="decimal" value={montant} onChange={(e) => setMontant(e.target.value)} /></Field>
-        <Field label="Séances réglées"><input className="input" inputMode="numeric" value={nb} onChange={(e) => setNb(e.target.value)} /></Field>
-      </div>
+      <Field label="Nombre de séances payées">
+        <div className="row wrap">
+          <button className="btn secondary" type="button" onClick={() => changerNb(nb - 1)} aria-label="Moins">−</button>
+          <input className="input" style={{ width: 70, textAlign: "center", fontWeight: 700 }} inputMode="numeric" value={nb}
+            onChange={(e) => changerNb(lireNombre(e.target.value, nb))} />
+          <button className="btn secondary" type="button" onClick={() => changerNb(nb + 1)} aria-label="Plus">+</button>
+          {[seancesParPaiement, seancesParPaiement * 2].map((n) => (
+            <button key={n} type="button" className={`chip ${nb === n ? "on" : ""}`} onClick={() => changerNb(n)}>{n} séances</button>
+          ))}
+        </div>
+      </Field>
+      <div className="alert blue small"><div>
+        {reste > 0 && <>Séances faites non payées : <b>{dues}</b> → il en restera <b>{reste}</b> à payer.</>}
+        {reste === 0 && <>Séances faites non payées : <b>{dues}</b> → tout sera réglé.</>}
+        {reste < 0 && <>Séances faites non payées : <b>{Math.max(0, dues)}</b> → crédit de <b>{-reste}</b> séance(s) payée(s) d'avance.</>}
+      </div></div>
+      <Field label={`Montant (${devise}) — ${formatMontant(prixSeance)} ${devise} par séance`}>
+        <input className="input" inputMode="decimal" value={montant} onChange={(e) => { setMontant(e.target.value); setMontantModifie(true); }} />
+      </Field>
       <Field label="Mode de paiement">
         <div className="chips">{MODES_PAIEMENT.map((m) => <button key={m} type="button" className={`chip ${mode === m ? "on" : ""}`} onClick={() => setMode(m)}>{m}</button>)}</div>
       </Field>
+      <label className="row card pad" style={{ cursor: "pointer", boxShadow: "none" }}>
+        <input type="checkbox" checked={encaisse} onChange={(e) => setEncaisse(e.target.checked)} style={{ width: 18, height: 18 }} />
+        <span className="grow">
+          <span className="bold">Encaissé</span>
+          <span className="tiny muted" style={{ display: "block" }}>{encaisse ? "L'argent est reçu" : "Prévu, pas encore reçu (ex. chèque à déposer)"}</span>
+        </span>
+      </label>
       <Field label="Observation"><input className="input" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Facultatif" /></Field>
     </Modal>
   );

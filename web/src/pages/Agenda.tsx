@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, Clock, MapPin, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CalendarDays, CalendarX, Clock, MapPin, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { actions, useDonnees } from "../store";
 import type { RendezVous } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
@@ -10,6 +10,8 @@ export default function Agenda() {
   const [ajout, setAjout] = useState(false);
   const [aSupprimer, setASupprimer] = useState<RendezVous | null>(null);
   const [voirPasses, setVoirPasses] = useState(false);
+  const [aReporter, setAReporter] = useState<RendezVous | null>(null);
+  const [aAnnuler, setAAnnuler] = useState<RendezVous | null>(null);
 
   const debut = debutDuJour(Date.now());
   const { aVenir, passes } = useMemo(() => {
@@ -29,17 +31,24 @@ export default function Agenda() {
   };
 
   const carte = (r: RendezVous, passe = false) => (
-    <div key={r.id} className="card item" style={passe ? { opacity: 0.6 } : undefined}>
+    <div key={r.id} className="card item" style={passe || r.annule ? { opacity: 0.6 } : undefined}>
       <span className="badge blue">{r.heure}</span>
       <div className="grow">
-        <div className="bold ellipsis">{r.nomEleve}</div>
+        <div className="bold ellipsis" style={r.annule ? { textDecoration: "line-through" } : undefined}>{r.nomEleve}</div>
         <div className="small muted row wrap" style={{ gap: 10 }}>
+          {r.annule && <span className="badge red">Annulée</span>}
           <span className="row" style={{ gap: 4 }}><Clock size={13} />{formatDuree(r.dureeHeures)} h</span>
           <span className="row" style={{ gap: 4 }}><MapPin size={13} />{r.lieu}</span>
         </div>
         {r.remarque && <div className="tiny muted">{r.remarque}</div>}
       </div>
-      <button className="icon-btn" aria-label="Supprimer" onClick={() => setASupprimer(r)}><Trash2 size={17} /></button>
+      <button className="icon-btn" title="Reporter" aria-label="Reporter" onClick={() => setAReporter(r)}><CalendarClock size={17} /></button>
+      {r.annule ? (
+        <button className="icon-btn" title="Rétablir la séance" aria-label="Rétablir" onClick={() => { actions.annulerRendezVous(r.id, false); toast("Séance rétablie"); }}><RotateCcw size={17} /></button>
+      ) : (
+        <button className="icon-btn" title="Annuler la séance" aria-label="Annuler la séance" onClick={() => setAAnnuler(r)}><CalendarX size={17} /></button>
+      )}
+      <button className="icon-btn" title="Supprimer" aria-label="Supprimer" onClick={() => setASupprimer(r)}><Trash2 size={17} /></button>
     </div>
   );
 
@@ -76,6 +85,16 @@ export default function Agenda() {
       )}
 
       {ajout && <FormRdv onClose={() => setAjout(false)} />}
+      {aReporter && <Reporter rdv={aReporter} onClose={() => setAReporter(null)} />}
+      {aAnnuler && (
+        <Confirmation
+          titre="Annuler cette séance ?"
+          libelle="Annuler la séance"
+          message={`${aAnnuler.nomEleve} — ${formatDateLongue(aAnnuler.date)} à ${aAnnuler.heure}. Elle restera visible (barrée) et pourra être rétablie.`}
+          onConfirm={() => { actions.annulerRendezVous(aAnnuler.id, true); toast("Séance annulée"); }}
+          onClose={() => setAAnnuler(null)}
+        />
+      )}
       {aSupprimer && (
         <Confirmation
           titre="Supprimer ce rendez-vous ?"
@@ -135,6 +154,30 @@ function FormRdv({ onClose }: { onClose: () => void }) {
         <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
       </div>
       <Field label="Remarque / objet"><input className="input" value={remarque} onChange={(e) => setRemarque(e.target.value)} /></Field>
+    </Modal>
+  );
+}
+
+function Reporter({ rdv, onClose }: { rdv: RendezVous; onClose: () => void }) {
+  const [jour, setJour] = useState(versInputDate(rdv.date));
+  const [heure, setHeure] = useState(rdv.heure);
+  return (
+    <Modal
+      titre="Reporter la séance"
+      onClose={onClose}
+      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
+        <button className="btn" disabled={!jour || !heure} onClick={() => {
+          actions.reporterRendezVous(rdv.id, depuisInputDate(jour), heure);
+          toast("Séance reportée");
+          onClose();
+        }}>Reporter</button></>}
+    >
+      <div className="bold">{rdv.nomEleve}</div>
+      <div className="small muted">Actuellement : {formatDateLongue(rdv.date)} à {rdv.heure}</div>
+      <div className="fields-2">
+        <Field label="Nouvelle date"><input className="input" type="date" value={jour} onChange={(e) => setJour(e.target.value)} /></Field>
+        <Field label="Nouvelle heure"><input className="input" type="time" value={heure} onChange={(e) => setHeure(e.target.value)} /></Field>
+      </div>
     </Modal>
   );
 }

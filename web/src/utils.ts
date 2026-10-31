@@ -129,3 +129,6 @@ export function versCsv(lignes: (string | number)[][]): string {
   const c = (v: string | number) => `"${String(v ?? "").replaceAll('"', '""')}"`;
   return "﻿" + lignes.map((l) => l.map(c).join(";")).join("\r\n");
 }
+
+/** "3/4" ou, si des séances ont été payées d'avance, "Crédit 2" */
+export const libelleCycle = (dues: number, limite: number) => (dues < 0 ? `Crédit ${-dues}` : `${dues}/${limite}`);

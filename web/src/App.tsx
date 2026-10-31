@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { CalendarDays, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { BellRing, CalendarDays, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
 import { CONFIG } from "./config";
 import { elevesPaiementEnAttente, useDonnees } from "./store";
 import { ToastHost } from "./components";
+import Verrouillage from "./Verrouillage";
+import { codeActif } from "./securite";
 import Accueil from "./pages/Accueil";
 import Eleves from "./pages/Eleves";
 import Groupes from "./pages/Groupes";
@@ -35,6 +37,47 @@ export default function App() {
   const [page, setPage] = useState<Page>(lirePage);
   const [ajoutEleve, setAjoutEleve] = useState(false);
   const enAttente = elevesPaiementEnAttente(d).length;
+
+  // ---------- Code d'accès ----------
+  const [verrouille, setVerrouille] = useState(codeActif);
+  const deverrouiller = useCallback(() => setVerrouille(false), []);
+  useEffect(() => {
+    const verrouiller = () => codeActif() && setVerrouille(true);
+    window.addEventListener("profsuivi:verrouiller", verrouiller);
+    // Re-verrouillage après 2 minutes hors de l'application
+    let cache = 0;
+    const visibilite = () => {
+      if (document.hidden) cache = Date.now();
+      else if (cache && Date.now() - cache > 2 * 60_000) verrouiller();
+    };
+    document.addEventListener("visibilitychange", visibilite);
+    return () => {
+      window.removeEventListener("profsuivi:verrouiller", verrouiller);
+      document.removeEventListener("visibilitychange", visibilite);
+    };
+  }, []);
+
+  // ---------- Rappels des séances (dans l'heure qui vient, quand l'app est ouverte) ----------
+  const [maintenant, setMaintenant] = useState(Date.now());
+  const [ignores, setIgnores] = useState<string[]>([]);
+  useEffect(() => {
+    const t = window.setInterval(() => setMaintenant(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const rappels = d.rendezVous
+    .filter((r) => !r.annule && r.date > maintenant && r.date - maintenant <= 60 * 60_000 && !ignores.includes(r.id))
+    .sort((a, b) => a.date - b.date);
+  useEffect(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    rappels.forEach((r) => {
+      const cle = `profsuivi-notifie-${r.id}-${r.date}`;
+      try {
+        if (sessionStorage.getItem(cle)) return;
+        sessionStorage.setItem(cle, "1");
+      } catch { /* ignore */ }
+      new Notification(`Cours à ${r.heure} : ${r.nomEleve}`, { body: `${r.lieu} · dans ${Math.round((r.date - Date.now()) / 60000)} min`, icon: "/icon-192.png" });
+    });
+  }, [rappels.map((r) => r.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigation avec le bouton "retour" du téléphone
   useEffect(() => {
@@ -85,6 +128,8 @@ export default function App() {
     }
   })();
 
+  if (verrouille) return <Verrouillage onDeverrouille={deverrouiller} />;
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -115,7 +160,18 @@ export default function App() {
         </button>
       </header>
 
-      <main className="main">{contenu}</main>
+      <main className="main">
+        {rappels.map((r) => (
+          <div key={r.id} className="rappel" role="alert">
+            <BellRing size={20} />
+            <div className="grow small">
+              <b>Rappel :</b> cours avec <b>{r.nomEleve}</b> à {r.heure} (dans {Math.max(1, Math.round((r.date - maintenant) / 60000))} min) · {r.lieu}
+            </div>
+            <button className="icon-btn" aria-label="Masquer le rappel" onClick={() => setIgnores([...ignores, r.id])}><X size={17} /></button>
+          </div>
+        ))}
+        {contenu}
+      </main>
 
       <nav className="bottom-nav">
         {NAV.filter((n) => n.mobile).map((n) => (

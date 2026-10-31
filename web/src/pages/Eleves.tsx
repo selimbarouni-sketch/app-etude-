@@ -4,7 +4,7 @@ import { actions, heureProchainCours, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
 import { AjoutEleves, FormGroupe } from "./Groupes";
-import { formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele } from "../utils";
+import { formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele, libelleCycle } from "../utils";
 
 export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boolean; finAjout: () => void }) {
   const d = useDonnees();
@@ -73,7 +73,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                   <div className="bold ellipsis">{e.prenom} {e.nom}</div>
                   <div className="small muted ellipsis">{e.classe} · {e.groupe || "Sans groupe"} · {e.telephone}</div>
                 </div>
-                <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+                <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
                 <div className="row" onClick={(ev) => ev.stopPropagation()} style={{ gap: 0 }}>
                   <a className="icon-btn" href={lienTel(e.telephone)} aria-label="Appeler"><Phone size={18} /></a>
                   <a className="icon-btn" href={lienWhatsapp(e.telephone, message(e))} target="_blank" rel="noreferrer" aria-label="WhatsApp" style={{ color: "var(--green)" }}><MessageCircle size={18} /></a>
@@ -101,7 +101,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                 <div key={e.id} className="item clickable" style={{ padding: "8px 4px" }} onClick={() => setDetail(e)}>
                   <div className="avatar" style={{ width: 34, height: 34, fontSize: 13 }}>{initiales(e.prenom, e.nom)}</div>
                   <div className="grow ellipsis">{e.prenom} {e.nom} <span className="muted small">· {e.classe}</span></div>
-                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
                 </div>
               ))}
               {g.groupe && (
@@ -148,7 +148,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
             <div className="card pad stack" style={{ gap: 4, boxShadow: "none" }}>
               <div>📞 {e.telephone}</div>
               {e.anniversaire && <div>🎂 Anniversaire : {e.anniversaire}</div>}
-              <div>Séances du cycle : <b>{e.sessionsInCurrentCycle} / {limite}</b></div>
+              <div>{e.sessionsInCurrentCycle < 0 ? <>Séances payées d'avance : <b>{-e.sessionsInCurrentCycle}</b></> : <>Séances à payer : <b>{e.sessionsInCurrentCycle} / {limite}</b></>}</div>
               <div>Total séances : <b>{e.totalSeancesRealisees}</b></div>
               <div>Total payé : <b>{nbPaye.toLocaleString("fr-FR")} {d.reglages.devise}</b></div>
               {e.observation && <div className="muted small">Observation : {e.observation}</div>}
