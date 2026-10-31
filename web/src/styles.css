@@ -360,3 +360,10 @@ textarea.input { resize: vertical; min-height: 90px; }
 .rappel { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius); margin-bottom: 14px;
   background: var(--orange-soft); color: var(--text); border: 1px solid color-mix(in srgb, var(--orange) 40%, transparent); }
 .rappel svg { color: var(--orange); flex-shrink: 0; }
+
+/* ---------- Installation ---------- */
+.etapes-installation { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.bandeau-installation { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 16px; }
+.bandeau-installation img { width: 44px; height: 44px; border-radius: 10px; }
+@media (max-width: 520px) { .bandeau-installation { flex-wrap: wrap; } .bandeau-installation .btn { width: 100%; } }
+.sidebar .installer { margin-top: auto; }

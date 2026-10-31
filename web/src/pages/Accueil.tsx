@@ -2,6 +2,9 @@ import { AlertTriangle, CalendarDays, CalendarPlus, ClipboardCheck, GraduationCa
 import type { Page } from "../App";
 import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
 import { toast } from "../components";
+import { BoutonInstaller, estInstallee } from "../installation";
+import { CONFIG } from "../config";
+import { useState } from "react";
 import { estAujourdhui, formatDateLongue, formatDuree, formatJourCourt, initiales, libelleCycle } from "../utils";
 
 export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => void; ajouterEleve: () => void }) {
@@ -11,6 +14,9 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
   const seancesJour = d.seances.filter((s) => estAujourdhui(s.date, now));
   const enAttente = elevesPaiementEnAttente(d);
   const limite = d.reglages.seancesParPaiement;
+  const [bandeauInstall, setBandeauInstall] = useState(() => {
+    try { return !estInstallee() && localStorage.getItem("profsuivi-install-masque") !== "1"; } catch { return !estInstallee(); }
+  });
 
   const stats = [
     { label: "Élèves", value: d.eleves.length, icon: GraduationCap, color: "var(--primary)", page: "eleves" as Page },
@@ -28,6 +34,18 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
         </h1>
         <button className="btn" onClick={ajouterEleve}><UserPlus size={18} />Ajouter un élève</button>
       </div>
+
+      {bandeauInstall && (
+        <div className="card bandeau-installation">
+          <img src="/icon-192.png" alt="" />
+          <div className="grow">
+            <div className="bold">Installez {CONFIG.nomApp} sur votre téléphone</div>
+            <div className="small muted">Une icône sur l'écran d'accueil, en plein écran, même hors connexion.</div>
+          </div>
+          <BoutonInstaller libelle="Installer" />
+          <button className="btn ghost small" onClick={() => { setBandeauInstall(false); try { localStorage.setItem("profsuivi-install-masque", "1"); } catch { /* ignore */ } }}>Plus tard</button>
+        </div>
+      )}
 
       <div className="grid-stats">
         {stats.map((s) => (

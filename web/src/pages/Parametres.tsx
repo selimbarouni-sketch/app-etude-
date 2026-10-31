@@ -4,6 +4,7 @@ import { actions, useDonnees } from "../store";
 import type { Style, Theme } from "../types";
 import { Confirmation, Field, Modal, toast } from "../components";
 import { CONFIG } from "../config";
+import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
 import { formatDate, formatDuree, formatMontant, lireNombre, numeroInternational, telecharger, versCsv } from "../utils";
 
@@ -43,6 +44,18 @@ export default function Parametres() {
               <button key={v} className={`chip ${r.theme === v ? "on" : ""}`} onClick={() => actions.enregistrerReglages({ theme: v })}>{l}</button>
             ))}
           </div>
+        </section>
+
+        <section className="card pad stack">
+          <div className="bold">Application sur le téléphone</div>
+          {estInstallee() ? (
+            <div className="small muted">✅ {CONFIG.nomApp} est installée sur cet appareil.</div>
+          ) : (
+            <>
+              <div className="small muted">Ajoutez {CONFIG.nomApp} à l'écran d'accueil de votre smartphone : elle s'ouvrira en plein écran, comme une application.</div>
+              <BoutonInstaller className="btn" />
+            </>
+          )}
         </section>
 
         <Securite />
