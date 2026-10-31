@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { CONFIG } from "./config";
-import type { Donnees, Eleve, Groupe, Note, Reglages, RendezVous, Seance, Statut } from "./types";
+import type { Donnees, Eleve, Groupe, Note, Paiement, Reglages, RendezVous, Seance, Statut } from "./types";
 import { combinerDateHeure, dureeEntre, prochainCreneau, uid } from "./utils";
 
 /**
@@ -15,6 +15,7 @@ export const REGLAGES_DEFAUT: Reglages = {
   dureeParDefautHeures: 2,
   devise: CONFIG.deviseParDefaut,
   theme: "auto",
+  style: "classique",
   smsTemplateRappel: "Bonjour {prenom}, petit rappel concernant votre cours de {classe} à {heure}. Merci !",
   smsTemplatePaiement: "Bonjour {prenom}, rappel pour le paiement du forfait ({montant} {devise}). Merci !",
 };
@@ -113,20 +114,54 @@ export const actions = {
   },
 
   // ---------- Groupes ----------
-  ajouterGroupe(g: Omit<Groupe, "id" | "prochaineSeance" | "remarque">) {
-    maj((d) => ({ ...d, groupes: [...d.groupes, { ...g, id: uid(), remarque: "", prochaineSeance: 0 }] }));
+  ajouterGroupe(g: Omit<Groupe, "id" | "prochaineSeance" | "remarque"> & { remarque?: string }): Groupe {
+    const groupe: Groupe = { remarque: "", ...g, id: uid(), prochaineSeance: 0 };
+    maj((d) => ({ ...d, groupes: [...d.groupes, groupe] }));
+    return groupe;
   },
+  /** Modifie un groupe ; si le nom change, les élèves du groupe suivent. */
   modifierGroupe(g: Groupe) {
-    maj((d) => ({ ...d, groupes: d.groupes.map((x) => (x.id === g.id ? g : x)) }));
+    maj((d) => {
+      const ancien = d.groupes.find((x) => x.id === g.id);
+      const renomme = ancien && ancien.nom !== g.nom;
+      return {
+        ...d,
+        groupes: d.groupes.map((x) => (x.id === g.id ? g : x)),
+        eleves: renomme ? d.eleves.map((e) => (e.groupe.toLowerCase() === ancien!.nom.toLowerCase() ? { ...e, groupe: g.nom } : e)) : d.eleves,
+      };
+    });
   },
-  supprimerGroupe(id: string) {
-    maj((d) => ({ ...d, groupes: d.groupes.filter((x) => x.id !== id) }));
+  supprimerGroupe(id: string, retirerEleves = true) {
+    maj((d) => {
+      const g = d.groupes.find((x) => x.id === id);
+      return {
+        ...d,
+        groupes: d.groupes.filter((x) => x.id !== id),
+        eleves: g && retirerEleves ? d.eleves.map((e) => (e.groupe.toLowerCase() === g.nom.toLowerCase() ? { ...e, groupe: "" } : e)) : d.eleves,
+      };
+    });
+  },
+  /** Place des élèves existants dans un groupe (un élève n'appartient qu'à un groupe). */
+  affecterEleves(nomGroupe: string, ids: string[]) {
+    const set = new Set(ids);
+    maj((d) => ({ ...d, eleves: d.eleves.map((e) => (set.has(e.id) ? { ...e, groupe: nomGroupe } : e)) }));
+  },
+  retirerDuGroupe(id: string) {
+    maj((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === id ? { ...e, groupe: "" } : e)) }));
+  },
+  /** Crée plusieurs élèves d'un coup. */
+  ajouterEleves(liste: Omit<Eleve, "id" | "dateInscription" | "sessionsInCurrentCycle" | "totalSeancesRealisees">[]) {
+    const now = Date.now();
+    maj((d) => ({
+      ...d,
+      eleves: [...d.eleves, ...liste.map((e) => ({ ...e, id: uid(), dateInscription: now, sessionsInCurrentCycle: 0, totalSeancesRealisees: 0 }))],
+    }));
   },
   /** Ajoute la prochaine séance hebdomadaire du groupe à l'agenda. Renvoie sa date. */
   programmerProchaineSeance(groupe: Groupe): { date: number; dejaPresent: boolean } {
     const date = prochainCreneau(groupe.jourSemaine, groupe.heureDebut);
     const nom = `Groupe : ${groupe.nom}`;
-    const dejaPresent = etat.rendezVous.some((r) => r.nomEleve === nom && r.date === date);
+    const dejaPresent = etat.rendezVous.some((r) => r.nomEleve === nom && r.date === date && !r.annule);
     if (!dejaPresent) {
       const rdv: RendezVous = {
         id: uid(),
@@ -151,6 +186,13 @@ export const actions = {
   ajouterRendezVous(r: Omit<RendezVous, "id" | "date"> & { jour: number }) {
     const { jour, ...reste } = r;
     maj((d) => ({ ...d, rendezVous: [...d.rendezVous, { ...reste, id: uid(), date: combinerDateHeure(jour, r.heure) }] }));
+  },
+  /** Reporte une séance à une nouvelle date/heure (et la rétablit si elle était annulée). */
+  reporterRendezVous(id: string, jour: number, heure: string) {
+    maj((d) => ({ ...d, rendezVous: d.rendezVous.map((r) => (r.id === id ? { ...r, date: combinerDateHeure(jour, heure), heure, annule: false } : r)) }));
+  },
+  annulerRendezVous(id: string, annule: boolean) {
+    maj((d) => ({ ...d, rendezVous: d.rendezVous.map((r) => (r.id === id ? { ...r, annule } : r)) }));
   },
   supprimerRendezVous(id: string) {
     maj((d) => ({ ...d, rendezVous: d.rendezVous.filter((x) => x.id !== id) }));
@@ -181,7 +223,7 @@ export const actions = {
         eleves: compte(s.statut)
           ? d.eleves.map((e) =>
               e.id === s.eleveId
-                ? { ...e, sessionsInCurrentCycle: Math.max(0, e.sessionsInCurrentCycle - 1), totalSeancesRealisees: Math.max(0, e.totalSeancesRealisees - 1) }
+                ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - 1, totalSeancesRealisees: Math.max(0, e.totalSeancesRealisees - 1) }
                 : e
             )
           : d.eleves,
@@ -190,7 +232,7 @@ export const actions = {
   },
 
   // ---------- Paiements ----------
-  enregistrerPaiement(p: { eleve: Eleve; montant: number; modePaiement: string; nbSeances: number; observation: string }) {
+  enregistrerPaiement(p: { eleve: Eleve; montant: number; modePaiement: string; nbSeances: number; observation: string; encaisse?: boolean }) {
     maj((d) => ({
       ...d,
       paiements: [
@@ -203,14 +245,25 @@ export const actions = {
           modePaiement: p.modePaiement,
           nbSeancesReglees: p.nbSeances,
           observation: p.observation,
+          encaisse: p.encaisse ?? true,
         },
         ...d.paiements,
       ],
-      // On déduit seulement les séances réglées (les séances en plus restent dues)
-      eleves: d.eleves.map((e) =>
-        e.id === p.eleve.id ? { ...e, sessionsInCurrentCycle: Math.max(0, e.sessionsInCurrentCycle - p.nbSeances) } : e
-      ),
+      // On déduit les séances réglées ; si on paie d'avance, le compteur devient négatif (= crédit)
+      eleves: d.eleves.map((e) => (e.id === p.eleve.id ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - p.nbSeances } : e)),
     }));
+  },
+  /** Modifie un versement ; si le nombre de séances réglées change, le compteur de l'élève est corrigé. */
+  modifierPaiement(p: Paiement) {
+    maj((d) => {
+      const ancien = d.paiements.find((x) => x.id === p.id);
+      const delta = ancien ? ancien.nbSeancesReglees - p.nbSeancesReglees : 0;
+      return {
+        ...d,
+        paiements: d.paiements.map((x) => (x.id === p.id ? p : x)),
+        eleves: delta ? d.eleves.map((e) => (e.id === p.eleveId ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle + delta } : e)) : d.eleves,
+      };
+    });
   },
   supprimerPaiement(id: string) {
     maj((d) => {
@@ -274,7 +327,7 @@ export function elevesPaiementEnAttente(d: Donnees): Eleve[] {
 export function heureProchainCours(d: Donnees, e: Eleve): string {
   const now = Date.now();
   const rdv = d.rendezVous
-    .filter((r) => r.date >= now && (r.eleveId === e.id || (e.groupe && r.nomEleve === `Groupe : ${e.groupe}`)))
+    .filter((r) => !r.annule && r.date >= now && (r.eleveId === e.id || (e.groupe && r.nomEleve === `Groupe : ${e.groupe}`)))
     .sort((a, b) => a.date - b.date)[0];
   if (rdv) return rdv.heure;
   const g = d.groupes.find((x) => x.nom.toLowerCase() === e.groupe.toLowerCase());

@@ -29,9 +29,30 @@ class ProfRepository(private val db: AppDatabase) {
 
     suspend fun addGroupe(groupe: GroupeEntity): Long = groupeDao.insertGroupe(groupe)
 
-    suspend fun updateGroupe(groupe: GroupeEntity) = groupeDao.updateGroupe(groupe)
+    /** Modifie un groupe ; si son nom change, ses élèves suivent. */
+    suspend fun updateGroupe(groupe: GroupeEntity) {
+        db.withTransaction {
+            val ancien = groupeDao.getGroupeById(groupe.id)
+            groupeDao.updateGroupe(groupe)
+            if (ancien != null && ancien.nom != groupe.nom) eleveDao.renommerGroupe(ancien.nom, groupe.nom)
+        }
+    }
 
-    suspend fun deleteGroupe(groupe: GroupeEntity) = groupeDao.deleteGroupe(groupe)
+    /** Supprime le groupe ; ses élèves sont conservés et passent "sans groupe". */
+    suspend fun deleteGroupe(groupe: GroupeEntity) {
+        db.withTransaction {
+            groupeDao.deleteGroupe(groupe)
+            eleveDao.renommerGroupe(groupe.nom, null)
+        }
+    }
+
+    suspend fun affecterAuGroupe(ids: List<Int>, nomGroupe: String) {
+        if (ids.isNotEmpty()) eleveDao.affecterAuGroupe(ids, nomGroupe)
+    }
+
+    suspend fun retirerDuGroupe(eleveId: Int) = eleveDao.retirerDuGroupe(eleveId)
+
+    suspend fun addEleves(eleves: List<EleveEntity>) = eleveDao.insertEleves(eleves)
 
     suspend fun ensureDefaultGroupesExist() {
         if (groupeDao.getGroupeCount() == 0) {
@@ -105,7 +126,8 @@ class ProfRepository(private val db: AppDatabase) {
         montant: Double,
         modePaiement: String,
         nbSeances: Int,
-        observation: String
+        observation: String,
+        estEncaisse: Boolean = true
     ) {
         val paiement = PaiementEntity(
             eleveId = eleveId,
@@ -114,13 +136,33 @@ class ProfRepository(private val db: AppDatabase) {
             montant = montant,
             modePaiement = modePaiement,
             nbSeancesReglees = nbSeances,
-            observation = observation
+            observation = observation,
+            estEncaisse = estEncaisse
         )
         db.withTransaction {
             paiementDao.insertPaiement(paiement)
-            // Correction : on retire seulement les séances payées. Avant, le compteur
-            // était remis à 0 et les séances en plus (ex. 6 faites, 4 payées) étaient perdues.
+            // On retire seulement les séances réglées (ex. 6 faites, 4 payées : il en reste 2).
+            // Payer 8 séances alors que 4 sont faites laisse un crédit de 4 séances.
             eleveDao.deduireSeancesPayees(eleveId, nbSeances)
+        }
+    }
+
+    /** Modifie un versement ; si le nombre de séances réglées change, le compteur de l'élève est corrigé. */
+    suspend fun modifierPaiement(paiement: PaiementEntity) {
+        db.withTransaction {
+            val ancien = paiementDao.getPaiementById(paiement.id)
+            paiementDao.updatePaiement(paiement)
+            if (ancien != null && ancien.nbSeancesReglees != paiement.nbSeancesReglees) {
+                eleveDao.ajusterSeancesDues(paiement.eleveId, ancien.nbSeancesReglees - paiement.nbSeancesReglees)
+            }
+        }
+    }
+
+    /** Annule un versement : ses séances redeviennent à payer. */
+    suspend fun supprimerPaiement(paiement: PaiementEntity) {
+        db.withTransaction {
+            paiementDao.deletePaiement(paiement)
+            eleveDao.ajusterSeancesDues(paiement.eleveId, paiement.nbSeancesReglees)
         }
     }
 

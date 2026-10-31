@@ -16,7 +16,8 @@ data class EleveEntity(
     val photoUri: String? = null,
     val groupe: String? = null, // e.g. "Groupe A", "Maths Bac"
     val anniversaire: String? = null, // e.g. "15/08"
-    val sessionsInCurrentCycle: Int = 0, // Unpaid sessions in current 4-session cycle
+    /** Séances faites non payées. Négatif = séances payées d'avance (crédit). */
+    val sessionsInCurrentCycle: Int = 0,
     val totalSeancesRealisees: Int = 0,
     val isArchived: Boolean = false
 )

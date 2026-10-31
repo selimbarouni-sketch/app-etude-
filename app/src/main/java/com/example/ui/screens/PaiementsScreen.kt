@@ -1,28 +1,34 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.PaiementEntity
+import com.example.data.local.entity.SettingsEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
-import com.example.util.formatMontant
-import com.example.util.remplirModele
 import com.example.util.CommunicationHelper
-import androidx.compose.ui.platform.LocalContext
+import com.example.util.formatMontant
+import com.example.util.libelleCycle
+import com.example.util.remplirModele
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -30,176 +36,103 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaiementsScreen(viewModel: ProfViewModel) {
+    val context = LocalContext.current
     val paiements by viewModel.allPaiements.collectAsState()
+    val eleves by viewModel.allEleves.collectAsState()
     val elevesPaiementEnAttente by viewModel.elevesPaiementEnAttente.collectAsState()
     val settings by viewModel.settings.collectAsState()
-    val context = LocalContext.current
 
-    var selectedEleveForPayment by remember { mutableStateOf<EleveEntity?>(null) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: À réclamer, 1: Historique
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 : à payer, 1 : historique
+    var choixEleve by remember { mutableStateOf(false) }
+    var eleveAPayer by remember { mutableStateOf<EleveEntity?>(null) }
+    var paiementAModifier by remember { mutableStateOf<PaiementEntity?>(null) }
+    var paiementASupprimer by remember { mutableStateOf<PaiementEntity?>(null) }
 
-    val totalEncaisse = paiements.sumOf { it.montant }
-    // Un élève peut devoir plusieurs forfaits (ex. 8 séances avec un forfait de 4)
     val limite = settings.seancesParPaiement.coerceAtLeast(1)
-    val totalEnAttente = elevesPaiementEnAttente.sumOf { (_, count) -> (count / limite) * settings.tarifForfait }
-
-    val dateFormat = SimpleDateFormat("dd/MM/yyyy • HH:mm", Locale.FRANCE)
+    val totalEncaisse = paiements.filter { it.estEncaisse }.sumOf { it.montant }
+    val totalNonEncaisse = paiements.filter { !it.estEncaisse }.sumOf { it.montant }
+    val totalAttendu = elevesPaiementEnAttente.sumOf { (_, count) -> (count / limite) * settings.tarifForfait }
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Gestion des Paiements", fontWeight = FontWeight.Bold) },
+                title = { Text("Paiements", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
+        },
+        floatingActionButton = {
+            if (eleves.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = { choixEleve = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Encaisser") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Stats Banner
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Recette Encaissée",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "${formatMontant(totalEncaisse)} ${settings.devise}",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = StatusGreen
-                        )
-                    }
-                    Divider(
-                        modifier = Modifier
-                            .height(40.dp)
-                            .width(1.dp)
-                    )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Somme Attendu",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "${formatMontant(totalEnAttente)} ${settings.devise}",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (totalEnAttente > 0) StatusRed else StatusGreen
-                        )
-                    }
-                }
+                Montant("Encaissé", totalEncaisse, settings.devise, StatusGreen, Modifier.weight(1f))
+                Montant("Non encaissé", totalNonEncaisse, settings.devise, StatusOrange, Modifier.weight(1f))
+                Montant("À réclamer", totalAttendu, settings.devise, if (totalAttendu > 0) StatusRed else StatusGreen, Modifier.weight(1f))
             }
 
-            // Tabs
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("⚠️ Attendu (${elevesPaiementEnAttente.size})") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("📜 Historique (${paiements.size})") }
-                )
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("À payer (${elevesPaiementEnAttente.size})") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Historique (${paiements.size})") })
             }
 
-            when (selectedTab) {
-                0 -> {
-                    if (elevesPaiementEnAttente.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = StatusGreen,
-                                    modifier = Modifier.size(56.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Tous les paiements sont à jour !",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                            }
+            if (selectedTab == 0) {
+                if (elevesPaiementEnAttente.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(56.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("Tous les paiements sont à jour !", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Bouton « Encaisser » pour un paiement à l'avance.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(elevesPaiementEnAttente) { (eleve, count) ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = StatusRedBg)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "${eleve.prenom} ${eleve.nom}",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 16.sp,
-                                                color = StatusRed
-                                            )
-                                            Text(
-                                                text = "Classe: ${eleve.classe} • Séances: $count / ${settings.seancesParPaiement}",
-                                                fontSize = 13.sp,
-                                                color = StatusRed
-                                            )
-                                            Text(
-                                                text = "Forfait à régler : ${formatMontant(settings.tarifForfait)} ${settings.devise}" + if (count / limite > 1) " (×${count / limite})" else "",
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 13.sp
-                                            )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(elevesPaiementEnAttente, key = { it.first.id }) { (eleve, count) ->
+                            val nbForfaits = (count / limite).coerceAtLeast(1)
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("${eleve.prenom} ${eleve.nom}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        Text("${eleve.classe} · $count séances faites non payées", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            "À régler : ${formatMontant(settings.tarifForfait * nbForfaits)} ${settings.devise}" + if (nbForfaits > 1) " ($nbForfaits forfaits)" else "",
+                                            fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = StatusRed
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Button(onClick = { eleveAPayer = eleve }, colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)) {
+                                            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Reçu")
                                         }
-
-                                        Column(horizontalAlignment = Alignment.End) {
-                                            Button(
-                                                onClick = { selectedEleveForPayment = eleve },
-                                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
-                                            ) {
-                                                Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Paiement Reçu")
-                                            }
-                                            TextButton(onClick = {
-                                                val msg = remplirModele(
-                                                    settings.smsTemplatePaiement, eleve.prenom, eleve.nom, eleve.classe, "",
-                                                    formatMontant(settings.tarifForfait), settings.devise
-                                                )
-                                                CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, msg)
-                                            }) {
-                                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Rappel", fontSize = 12.sp)
-                                            }
+                                        TextButton(onClick = {
+                                            val msg = remplirModele(
+                                                settings.smsTemplatePaiement, eleve.prenom, eleve.nom, eleve.classe, "",
+                                                formatMontant(settings.tarifForfait * nbForfaits), settings.devise
+                                            )
+                                            CommunicationHelper.envoyerWhatsapp(context, eleve.telephone, msg)
+                                        }) {
+                                            Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Rappel", fontSize = 12.sp)
                                         }
                                     }
                                 }
@@ -207,60 +140,47 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                         }
                     }
                 }
-                1 -> {
-                    if (paiements.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Aucun paiement enregistré pour l'instant.")
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(paiements, key = { it.id }) { paiement ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = paiement.nomEleveCache,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp
-                                            )
-                                            Text(
-                                                text = "${dateFormat.format(Date(paiement.dateEpochMs))} • ${paiement.modePaiement}",
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            if (paiement.observation.isNotBlank()) {
-                                                Text(
-                                                    text = "Obs: ${paiement.observation}",
-                                                    fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-
+            } else {
+                if (paiements.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text("Aucun paiement enregistré pour l'instant.")
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(paiements, key = { it.id }) { p ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().clickable { paiementAModifier = p },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(p.nomEleveCache, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(
-                                            text = "+${formatMontant(paiement.montant)} ${settings.devise}",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = StatusGreen
+                                            "${dateFormat.format(Date(p.dateEpochMs))} · ${p.modePaiement} · ${p.nbSeancesReglees} séance(s)",
+                                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        if (p.observation.isNotBlank()) {
+                                            Text(p.observation, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                                        }
+                                        if (!p.estEncaisse) {
+                                            AssistChip(
+                                                onClick = { viewModel.modifierPaiement(p.copy(estEncaisse = true)) },
+                                                label = { Text("Non encaissé · marquer encaissé", fontSize = 11.sp) },
+                                                leadingIcon = { Icon(Icons.Default.HourglassEmpty, contentDescription = null, modifier = Modifier.size(16.dp), tint = StatusOrange) }
+                                            )
+                                        }
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            "+${formatMontant(p.montant)} ${settings.devise}",
+                                            fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                            color = if (p.estEncaisse) StatusGreen else StatusOrange
+                                        )
+                                        Icon(Icons.Default.Edit, contentDescription = "Modifier", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -271,100 +191,201 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
         }
     }
 
-    if (selectedEleveForPayment != null) {
-        val eleve = selectedEleveForPayment!!
-        EnregistrerPaiementDialog(
-            eleve = eleve,
-            defaultMontant = settings.tarifForfait,
-            devise = settings.devise,
-            defaultSeances = settings.seancesParPaiement,
-            onDismiss = { selectedEleveForPayment = null },
-            onConfirm = { montant, mode, obs ->
-                viewModel.marquerPaiementRecu(
-                    eleveId = eleve.id,
-                    nomEleve = "${eleve.prenom} ${eleve.nom}",
-                    montant = montant,
-                    modePaiement = mode,
-                    nbSeances = settings.seancesParPaiement,
-                    observation = obs
-                )
-                selectedEleveForPayment = null
+    if (choixEleve) {
+        AlertDialog(
+            onDismissRequest = { choixEleve = false },
+            title = { Text("Encaisser un paiement") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text("Choisissez l'élève (y compris pour un paiement à l'avance) :", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    eleves.sortedBy { it.nom + it.prenom }.forEach { e ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { choixEleve = false; eleveAPayer = e }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${e.prenom} ${e.nom}", fontWeight = FontWeight.SemiBold)
+                                Text(e.classe, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text(libelleCycle(e.sessionsInCurrentCycle, limite), fontSize = 12.sp, color = PrimaryBlue)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choixEleve = false }) { Text("Annuler") } }
+        )
+    }
+
+    eleveAPayer?.let { eleve ->
+        PaiementDialog(
+            titre = "Paiement — ${eleve.prenom} ${eleve.nom}",
+            seancesDues = eleve.sessionsInCurrentCycle,
+            settings = settings,
+            initial = null,
+            onDismiss = { eleveAPayer = null },
+            onConfirm = { montant, mode, nb, obs, encaisse ->
+                viewModel.marquerPaiementRecu(eleve.id, "${eleve.prenom} ${eleve.nom}", montant, mode, nb, obs, encaisse)
+                eleveAPayer = null
             }
+        )
+    }
+
+    paiementAModifier?.let { p ->
+        val eleve = eleves.firstOrNull { it.id == p.eleveId }
+        PaiementDialog(
+            titre = "Modifier le versement — ${p.nomEleveCache}",
+            // Séances dues avant ce versement = dues actuelles + séances déjà réglées par ce versement
+            seancesDues = (eleve?.sessionsInCurrentCycle ?: 0) + p.nbSeancesReglees,
+            settings = settings,
+            initial = p,
+            onDismiss = { paiementAModifier = null },
+            onDelete = { paiementAModifier = null; paiementASupprimer = p },
+            onConfirm = { montant, mode, nb, obs, encaisse ->
+                viewModel.modifierPaiement(p.copy(montant = montant, modePaiement = mode, nbSeancesReglees = nb, observation = obs, estEncaisse = encaisse))
+                paiementAModifier = null
+            }
+        )
+    }
+
+    paiementASupprimer?.let { p ->
+        AlertDialog(
+            onDismissRequest = { paiementASupprimer = null },
+            title = { Text("Annuler ce versement ?") },
+            text = { Text("${p.nomEleveCache} — ${formatMontant(p.montant)} ${settings.devise}. Les ${p.nbSeancesReglees} séance(s) réglée(s) redeviendront à payer.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.supprimerPaiement(p); paiementASupprimer = null }) { Text("Annuler le versement", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { paiementASupprimer = null }) { Text("Retour") } }
         )
     }
 }
 
+@Composable
+private fun Montant(titre: String, valeur: Double, devise: String, couleur: androidx.compose.ui.graphics.Color, modifier: Modifier) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(titre, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(formatMontant(valeur), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = couleur, maxLines = 1)
+            Text(devise, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Saisie ou modification d'un versement : nombre de séances payées (ex. 8 pour deux forfaits),
+ * montant calculé automatiquement (modifiable), mode, encaissé ou non.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun EnregistrerPaiementDialog(
-    eleve: EleveEntity,
-    defaultMontant: Double,
-    devise: String,
-    defaultSeances: Int,
+fun PaiementDialog(
+    titre: String,
+    seancesDues: Int,
+    settings: SettingsEntity,
+    initial: PaiementEntity?,
     onDismiss: () -> Unit,
-    onConfirm: (montant: Double, mode: String, obs: String) -> Unit
+    onDelete: (() -> Unit)? = null,
+    onConfirm: (montant: Double, mode: String, nbSeances: Int, observation: String, encaisse: Boolean) -> Unit
 ) {
-    var montantText by remember { mutableStateOf(formatMontant(defaultMontant)) }
-    var selectedMode by remember { mutableStateOf("Espèces") }
-    var observation by remember { mutableStateOf("") }
-
+    val limite = settings.seancesParPaiement.coerceAtLeast(1)
+    val prixSeance = settings.tarifForfait / limite
+    var nbSeances by remember { mutableIntStateOf(initial?.nbSeancesReglees ?: limite) }
+    var montantText by remember { mutableStateOf(formatMontant(initial?.montant ?: settings.tarifForfait)) }
+    var montantModifie by remember { mutableStateOf(initial != null) }
+    var selectedMode by remember { mutableStateOf(initial?.modePaiement ?: "Espèces") }
+    var observation by remember { mutableStateOf(initial?.observation ?: "") }
+    var encaisse by remember { mutableStateOf(initial?.estEncaisse ?: true) }
     val modesList = listOf("Espèces", "Virement", "Carte", "Chèque")
+
+    fun changerNb(n: Int) {
+        nbSeances = n.coerceIn(1, 99)
+        if (!montantModifie) montantText = formatMontant(prixSeance * nbSeances)
+    }
+
+    val reste = seancesDues - nbSeances
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Valider Paiement - ${eleve.prenom} ${eleve.nom}") },
+        title = { Text(titre) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("Nombre de séances payées", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalIconButton(onClick = { changerNb(nbSeances - 1) }) { Icon(Icons.Default.Remove, contentDescription = "Moins") }
+                    Text("$nbSeances", fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+                    FilledTonalIconButton(onClick = { changerNb(nbSeances + 1) }) { Icon(Icons.Default.Add, contentDescription = "Plus") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(limite, limite * 2).distinct().forEach { n ->
+                            SuggestionChip(onClick = { changerNb(n) }, label = { Text("$n") })
+                        }
+                    }
+                }
                 Text(
-                    text = "Séances effectuées : ${eleve.sessionsInCurrentCycle}. Ce paiement règle $defaultSeances séance(s)" +
-                        " ; il en restera ${(eleve.sessionsInCurrentCycle - defaultSeances).coerceAtLeast(0)} à payer.",
+                    when {
+                        reste > 0 -> "Séances faites non payées : $seancesDues → il en restera $reste à payer."
+                        reste < 0 -> "Séances faites non payées : ${seancesDues.coerceAtLeast(0)} → crédit de ${-reste} séance(s) payée(s) d'avance."
+                        else -> "Séances faites non payées : $seancesDues → tout sera réglé."
+                    },
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 OutlinedTextField(
                     value = montantText,
-                    onValueChange = { montantText = it },
-                    label = { Text("Montant ($devise)") },
+                    onValueChange = { montantText = it; montantModifie = true },
+                    label = { Text("Montant (${settings.devise})") },
+                    supportingText = { Text("${formatMontant(prixSeance)} ${settings.devise} par séance") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Text("Mode de paiement :", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     modesList.forEach { mode ->
-                        FilterChip(
-                            selected = selectedMode == mode,
-                            onClick = { selectedMode = mode },
-                            label = { Text(mode, fontSize = 12.sp) }
+                        FilterChip(selected = selectedMode == mode, onClick = { selectedMode = mode }, label = { Text(mode, fontSize = 12.sp) })
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { encaisse = !encaisse }) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Encaissé", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (encaisse) "L'argent est reçu" else "Prévu, pas encore reçu (ex. chèque à déposer)",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Switch(checked = encaisse, onCheckedChange = { encaisse = it })
                 }
 
                 OutlinedTextField(
                     value = observation,
                     onValueChange = { observation = it },
-                    label = { Text("Observation (Facultative)") },
+                    label = { Text("Observation (facultative)") },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = StatusRed, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Annuler ce versement", color = StatusRed)
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val m = montantText.replace(',', '.').trim().toDoubleOrNull() ?: defaultMontant
-                    onConfirm(m, selectedMode, observation)
+                    val m = montantText.replace(',', '.').replace(" ", "").replace(" ", "").replace(" ", "").trim().toDoubleOrNull()
+                        ?: (prixSeance * nbSeances)
+                    onConfirm(m, selectedMode, nbSeances, observation.trim(), encaisse)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = StatusGreen)
-            ) {
-                Text("Valider le paiement")
-            }
+            ) { Text(if (initial == null) "Valider le paiement" else "Enregistrer") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Annuler") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
 }

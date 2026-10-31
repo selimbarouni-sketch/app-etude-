@@ -28,3 +28,7 @@ fun remplirModele(
     .replace("{heure}", heure)
     .replace("{montant}", montant)
     .replace("{devise}", devise)
+
+/** "3/4" ou, si des séances ont été payées d'avance, "Crédit 2". */
+fun libelleCycle(seancesDues: Int, limite: Int): String =
+    if (seancesDues < 0) "Crédit ${-seancesDues}" else "$seancesDues/$limite"

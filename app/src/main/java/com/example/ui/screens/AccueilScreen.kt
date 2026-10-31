@@ -24,6 +24,7 @@ import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.data.local.entity.SeanceEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -75,6 +76,7 @@ fun AccueilScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+                    RaccourcisNavigation()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -491,7 +493,7 @@ fun EleveQuickRow(eleve: EleveEntity, limitCycle: Int = 4, onClick: () -> Unit) 
                 contentColor = if (eleve.sessionsInCurrentCycle >= limitCycle) Color.White else StatusGreen
             ) {
                 Text(
-                    text = "${eleve.sessionsInCurrentCycle}/$limitCycle",
+                    text = com.example.util.libelleCycle(eleve.sessionsInCurrentCycle, limitCycle),
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }

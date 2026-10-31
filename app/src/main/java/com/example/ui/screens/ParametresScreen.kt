@@ -1,7 +1,16 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.CommunicationHelper
 import com.example.util.DatabaseBackupHelper
@@ -31,6 +41,10 @@ import com.example.util.ShareHelper
 fun ParametresScreen(viewModel: ProfViewModel) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
+    val styleChic by viewModel.styleChic.collectAsState()
+    val codeActif by viewModel.codeActif.collectAsState()
+    var dialogueCode by remember { mutableStateOf(false) }
+    var dialogueDesactiver by remember { mutableStateOf(false) }
     val eleves by viewModel.allEleves.collectAsState()
     val seances by viewModel.allSeances.collectAsState()
     val paiements by viewModel.allPaiements.collectAsState()
@@ -49,7 +63,8 @@ fun ParametresScreen(viewModel: ProfViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Paramètres & Outils", fontWeight = FontWeight.Bold) },
+                title = { Text("Paramètres", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
@@ -103,6 +118,63 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                                 ).show()
                             }
                         )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                // Choix du style : Classique ou Chic
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ApercuStyle(
+                        titre = "Classique",
+                        description = "Bleu, moderne",
+                        couleurs = listOf(Color(0xFF1565C0), Color(0xFFF4F6F9), Color(0xFF2E7D32)),
+                        selectionne = !styleChic,
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.setStyleChic(false) }
+                    )
+                    ApercuStyle(
+                        titre = "Chic",
+                        description = "Ivoire, bleu nuit et or",
+                        couleurs = listOf(Color(0xFF1F2A44), Color(0xFFF7F3EC), Color(0xFFB08D57)),
+                        selectionne = styleChic,
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.setStyleChic(true) }
+                    )
+                }
+            }
+
+            // Sécurité : code d'accès
+            item {
+                Text("Sécurité", fontWeight = FontWeight.Bold, color = PrimaryBlue, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryBlue)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Code d'accès", fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (!codeActif) "Désactivé" else if (viewModel.codeParDefaut) "Activé · code par défaut 1234" else "Activé · code personnalisé",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = codeActif,
+                                onCheckedChange = { actif ->
+                                    if (actif) viewModel.setCodeActif(true) else dialogueDesactiver = true
+                                }
+                            )
+                        }
+                        OutlinedButton(onClick = { dialogueCode = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Password, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Modifier le code")
+                        }
+                        Button(onClick = { viewModel.verrouiller() }, enabled = codeActif, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Lock, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Verrouiller maintenant")
+                        }
                     }
                 }
             }
@@ -339,6 +411,41 @@ fun ParametresScreen(viewModel: ProfViewModel) {
         }
     }
 
+    if (dialogueCode) {
+        ChangerCodeDialog(
+            onDismiss = { dialogueCode = false },
+            onValider = { actuel, nouveau, confirmation ->
+                val erreur = viewModel.changerCode(actuel, nouveau, confirmation)
+                if (erreur == null) {
+                    dialogueCode = false
+                    Toast.makeText(context, "Code d'accès modifié", Toast.LENGTH_SHORT).show()
+                }
+                erreur
+            }
+        )
+    }
+
+    if (dialogueDesactiver) {
+        var code by remember { mutableStateOf("") }
+        var erreur by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { dialogueDesactiver = false },
+            title = { Text("Désactiver le code ?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("L'application s'ouvrira sans code. Saisissez le code actuel pour confirmer.", fontSize = 13.sp)
+                    ChampCode("Code actuel", code, erreur) { code = it; erreur = false }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (viewModel.setCodeActif(false, code)) dialogueDesactiver = false else erreur = true
+                }) { Text("Désactiver") }
+            },
+            dismissButton = { TextButton(onClick = { dialogueDesactiver = false }) { Text("Annuler") } }
+        )
+    }
+
     // Modal: WhatsApp Multi-Contact Group Helper
     if (showWhatsAppGroupDialog) {
         WhatsAppGroupSelectorDialog(
@@ -374,6 +481,75 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                 showPdfGeneratorDialog = false
             }
         )
+    }
+}
+
+@Composable
+private fun ChampCode(label: String, valeur: String, erreur: Boolean, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = valeur,
+        onValueChange = { v -> onChange(v.filter { it.isDigit() }.take(8)) },
+        label = { Text(label) },
+        singleLine = true,
+        isError = erreur,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun ChangerCodeDialog(onDismiss: () -> Unit, onValider: (String, String, String) -> String?) {
+    var actuel by remember { mutableStateOf("") }
+    var nouveau by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    var erreur by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Modifier le code d'accès") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChampCode("Code actuel", actuel, erreur != null) { actuel = it; erreur = null }
+                ChampCode("Nouveau code (4 à 8 chiffres)", nouveau, false) { nouveau = it; erreur = null }
+                ChampCode("Confirmer le nouveau code", confirmation, false) { confirmation = it; erreur = null }
+                erreur?.let { Text(it, color = StatusRed, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = { Button(onClick = { erreur = onValider(actuel, nouveau, confirmation) }) { Text("Enregistrer") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ApercuStyle(
+    titre: String,
+    description: String,
+    couleurs: List<Color>,
+    selectionne: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    OutlinedCard(
+        onClick = onClick,
+        modifier = modifier,
+        border = BorderStroke(if (selectionne) 2.dp else 1.dp, if (selectionne) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                couleurs.forEach { c ->
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .border(1.dp, Color.Black.copy(alpha = 0.1f), CircleShape)
+                    )
+                }
+            }
+            Text(titre, fontWeight = FontWeight.Bold)
+            Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

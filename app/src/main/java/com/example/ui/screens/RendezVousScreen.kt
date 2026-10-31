@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.EleveEntity
 import com.example.data.local.entity.RendezVousEntity
 import com.example.ui.theme.*
+import com.example.ui.navigation.RaccourcisNavigation
 import com.example.ui.viewmodel.ProfViewModel
 import com.example.util.formatDuree
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +42,8 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
     var selectedRdvForEdit by remember { mutableStateOf<RendezVousEntity?>(null) }
 
     var rdvASupprimer by remember { mutableStateOf<RendezVousEntity?>(null) }
+    var rdvAAnnuler by remember { mutableStateOf<RendezVousEntity?>(null) }
+    var rdvAReporter by remember { mutableStateOf<RendezVousEntity?>(null) }
     val dateFormat = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
 
     // À venir d'abord (du plus proche au plus lointain), puis les passés (du plus récent au plus ancien)
@@ -54,7 +58,8 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Agenda & Rendez-vous (${allRdv.size})", fontWeight = FontWeight.Bold) },
+                title = { Text("Agenda (${allRdv.size})", fontWeight = FontWeight.Bold) },
+                actions = { RaccourcisNavigation() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
@@ -108,7 +113,7 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                     items(rdvTries, key = { it.id }) { rdv ->
                         val estPasse = rdv.dateEpochMs < debutJour
                         Card(
-                            modifier = Modifier.fillMaxWidth().then(if (estPasse) Modifier.alpha(0.55f) else Modifier),
+                            modifier = Modifier.fillMaxWidth().then(if (estPasse || rdv.estAnnule) Modifier.alpha(0.55f) else Modifier),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                         ) {
@@ -124,11 +129,41 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                                         fontSize = 14.sp,
                                         color = PrimaryBlue
                                     )
-                                    IconButton(
-                                        onClick = { rdvASupprimer = rdv },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = StatusRed)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (rdv.estAnnule) {
+                                            Text("ANNULÉE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StatusRed)
+                                        }
+                                        Box {
+                                            var menu by remember { mutableStateOf(false) }
+                                            IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp)) {
+                                                Icon(Icons.Default.MoreVert, contentDescription = "Actions")
+                                            }
+                                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Reporter") },
+                                                    leadingIcon = { Icon(Icons.Default.EditCalendar, contentDescription = null) },
+                                                    onClick = { menu = false; rdvAReporter = rdv }
+                                                )
+                                                if (rdv.estAnnule) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Rétablir la séance") },
+                                                        leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                                                        onClick = { menu = false; viewModel.annulerRendezVous(rdv, false) }
+                                                    )
+                                                } else {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Annuler la séance") },
+                                                        leadingIcon = { Icon(Icons.Default.EventBusy, contentDescription = null) },
+                                                        onClick = { menu = false; rdvAAnnuler = rdv }
+                                                    )
+                                                }
+                                                DropdownMenuItem(
+                                                    text = { Text("Supprimer", color = StatusRed) },
+                                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = StatusRed) },
+                                                    onClick = { menu = false; rdvASupprimer = rdv }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
@@ -144,7 +179,8 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
                                     Text(
                                         text = "${rdv.heure} (${formatDuree(rdv.dureeHeures)}h) • ${rdv.nomEleve}",
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp
+                                        fontSize = 15.sp,
+                                        textDecoration = if (rdv.estAnnule) TextDecoration.LineThrough else null
                                     )
                                 }
 
@@ -187,6 +223,29 @@ fun RendezVousScreen(viewModel: ProfViewModel) {
             onSave = { nomEleve, dateMs, heure, duree, lieu, remarque, eleveId ->
                 viewModel.addRendezVous(nomEleve, dateMs, heure, duree, lieu, remarque, eleveId)
                 showAddModal = false
+            }
+        )
+    }
+
+    rdvAAnnuler?.let { rdv ->
+        AlertDialog(
+            onDismissRequest = { rdvAAnnuler = null },
+            title = { Text("Annuler cette séance ?") },
+            text = { Text("${rdv.nomEleve} — ${dateFormat.format(Date(rdv.dateEpochMs))} à ${rdv.heure}.\nElle restera visible (barrée) et le rappel sera supprimé. Vous pourrez la rétablir.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.annulerRendezVous(rdv, true); rdvAAnnuler = null }) { Text("Annuler la séance", color = StatusRed) }
+            },
+            dismissButton = { TextButton(onClick = { rdvAAnnuler = null }) { Text("Retour") } }
+        )
+    }
+
+    rdvAReporter?.let { rdv ->
+        ReporterDialog(
+            rdv = rdv,
+            onDismiss = { rdvAReporter = null },
+            onConfirm = { jourMs, heure ->
+                viewModel.reporterRendezVous(rdv, jourMs, heure)
+                rdvAReporter = null
             }
         )
     }
@@ -352,6 +411,49 @@ fun AddRendezVousDialog(
         ) {
             DatePicker(state = pickerState)
         }
+    }
+}
+
+/** Reporter une séance : nouvelle date (calendrier) et nouvelle heure. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReporterDialog(rdv: RendezVousEntity, onDismiss: () -> Unit, onConfirm: (jourMs: Long, heure: String) -> Unit) {
+    var jourMs by remember { mutableStateOf(rdv.dateEpochMs) }
+    var heure by remember { mutableStateOf(rdv.heure) }
+    var calendrier by remember { mutableStateOf(false) }
+    val format = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reporter la séance") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(rdv.nomEleve, fontWeight = FontWeight.SemiBold)
+                Text("Actuellement : ${format.format(Date(rdv.dateEpochMs))} à ${rdv.heure}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = { calendrier = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(format.format(Date(jourMs)).replaceFirstChar { it.uppercase() })
+                }
+                OutlinedTextField(value = heure, onValueChange = { heure = it }, label = { Text("Nouvelle heure (ex. 16:00)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { Button(onClick = { onConfirm(jourMs, heure) }, enabled = heure.isNotBlank()) { Text("Reporter") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
+    )
+
+    if (calendrier) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = localVersUtc(jourMs))
+        DatePickerDialog(
+            onDismissRequest = { calendrier = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { jourMs = utcVersLocal(it) }
+                    calendrier = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { calendrier = false }) { Text("Annuler") } }
+        ) { DatePicker(state = pickerState) }
     }
 }
 

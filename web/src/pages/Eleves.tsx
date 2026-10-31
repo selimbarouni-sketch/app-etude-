@@ -3,7 +3,8 @@ import { CalendarPlus, MessageCircle, MessageSquare, Pencil, Phone, Plus, Search
 import { actions, heureProchainCours, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { JOURS, formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele } from "../utils";
+import { AjoutEleves, FormGroupe } from "./Groupes";
+import { formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele, libelleCycle } from "../utils";
 
 export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boolean; finAjout: () => void }) {
   const d = useDonnees();
@@ -15,6 +16,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
   const [aSupprimer, setASupprimer] = useState<Eleve | null>(null);
   const [nouveauGroupe, setNouveauGroupe] = useState(false);
   const [groupeASupprimer, setGroupeASupprimer] = useState<Groupe | null>(null);
+  const [ajoutDans, setAjoutDans] = useState<Groupe | null>(null);
 
   useEffect(() => {
     if (ajoutInitial) setEdition("nouveau");
@@ -71,7 +73,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                   <div className="bold ellipsis">{e.prenom} {e.nom}</div>
                   <div className="small muted ellipsis">{e.classe} · {e.groupe || "Sans groupe"} · {e.telephone}</div>
                 </div>
-                <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+                <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
                 <div className="row" onClick={(ev) => ev.stopPropagation()} style={{ gap: 0 }}>
                   <a className="icon-btn" href={lienTel(e.telephone)} aria-label="Appeler"><Phone size={18} /></a>
                   <a className="icon-btn" href={lienWhatsapp(e.telephone, message(e))} target="_blank" rel="noreferrer" aria-label="WhatsApp" style={{ color: "var(--green)" }}><MessageCircle size={18} /></a>
@@ -99,9 +101,14 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                 <div key={e.id} className="item clickable" style={{ padding: "8px 4px" }} onClick={() => setDetail(e)}>
                   <div className="avatar" style={{ width: 34, height: 34, fontSize: 13 }}>{initiales(e.prenom, e.nom)}</div>
                   <div className="grow ellipsis">{e.prenom} {e.nom} <span className="muted small">· {e.classe}</span></div>
-                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{e.sessionsInCurrentCycle}/{limite}</span>
+                  <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
                 </div>
               ))}
+              {g.groupe && (
+                <button className="btn small block" style={{ marginTop: 8 }} onClick={() => setAjoutDans(g.groupe!)}>
+                  <UserPlus size={16} />Ajouter des élèves
+                </button>
+              )}
               {g.groupe && (
                 <button className="btn secondary small block" style={{ marginTop: 8 }}
                   onClick={() => {
@@ -141,7 +148,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
             <div className="card pad stack" style={{ gap: 4, boxShadow: "none" }}>
               <div>📞 {e.telephone}</div>
               {e.anniversaire && <div>🎂 Anniversaire : {e.anniversaire}</div>}
-              <div>Séances du cycle : <b>{e.sessionsInCurrentCycle} / {limite}</b></div>
+              <div>{e.sessionsInCurrentCycle < 0 ? <>Séances payées d'avance : <b>{-e.sessionsInCurrentCycle}</b></> : <>Séances à payer : <b>{e.sessionsInCurrentCycle} / {limite}</b></>}</div>
               <div>Total séances : <b>{e.totalSeancesRealisees}</b></div>
               <div>Total payé : <b>{nbPaye.toLocaleString("fr-FR")} {d.reglages.devise}</b></div>
               {e.observation && <div className="muted small">Observation : {e.observation}</div>}
@@ -169,12 +176,13 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
       {groupeASupprimer && (
         <Confirmation
           titre={`Supprimer le groupe ${groupeASupprimer.nom} ?`}
-          message="Le créneau hebdomadaire sera supprimé. Les élèves ne sont pas supprimés."
+          message="Le groupe et son créneau seront supprimés. Les élèves sont conservés et passent « sans groupe »."
           onConfirm={() => actions.supprimerGroupe(groupeASupprimer.id)}
           onClose={() => setGroupeASupprimer(null)}
         />
       )}
-      {nouveauGroupe && <FormGroupe onClose={() => setNouveauGroupe(false)} />}
+      {nouveauGroupe && <FormGroupe onClose={() => setNouveauGroupe(false)} onCree={(g) => { setNouveauGroupe(false); setAjoutDans(g); }} />}
+      {ajoutDans && <AjoutEleves groupe={ajoutDans} onClose={() => setAjoutDans(null)} />}
     </>
   );
 }
@@ -233,38 +241,6 @@ function FormEleve({ eleve, groupes, onClose }: { eleve: Eleve | null; groupes: 
       )}
       <Field label="Anniversaire (jj/mm)"><input className="input" value={f.anniversaire} onChange={set("anniversaire")} placeholder="Facultatif" /></Field>
       <Field label="Observation"><textarea className="input" value={f.observation} onChange={set("observation")} /></Field>
-    </Modal>
-  );
-}
-
-function FormGroupe({ onClose }: { onClose: () => void }) {
-  const [nom, setNom] = useState("");
-  const [jour, setJour] = useState("Samedi");
-  const [debut, setDebut] = useState("14:00");
-  const [fin, setFin] = useState("16:00");
-  const [lieu, setLieu] = useState("Salle principale");
-  return (
-    <Modal
-      titre="Nouveau groupe"
-      onClose={onClose}
-      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
-        <button className="btn" disabled={!nom.trim()} onClick={() => {
-          actions.ajouterGroupe({ nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim() });
-          toast(`Groupe « ${nom.trim()} » créé`);
-          onClose();
-        }}>Créer le groupe</button></>}
-    >
-      <Field label="Nom du groupe *"><input className="input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="ex. Groupe Bac Math" autoFocus /></Field>
-      <Field label="Jour de la semaine">
-        <div className="chips">
-          {JOURS.map((j) => <button key={j} type="button" className={`chip ${jour === j ? "on" : ""}`} onClick={() => setJour(j)}>{j}</button>)}
-        </div>
-      </Field>
-      <div className="fields-2">
-        <Field label="Début"><input className="input" type="time" value={debut} onChange={(e) => setDebut(e.target.value)} /></Field>
-        <Field label="Fin"><input className="input" type="time" value={fin} onChange={(e) => setFin(e.target.value)} /></Field>
-      </div>
-      <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
     </Modal>
   );
 }
