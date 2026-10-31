@@ -3,5 +3,29 @@
   "framework": null,
   "installCommand": "if [ -d web ]; then cd web; fi; npm ci",
   "buildCommand": "if [ -d web ]; then cd web && npm run build && rm -rf ../dist && cp -r dist ../dist; else npm run build; fi",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    }
+  ]
 }

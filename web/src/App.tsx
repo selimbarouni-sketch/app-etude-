@@ -4,6 +4,7 @@ import { CONFIG } from "./config";
 import { elevesPaiementEnAttente, useDonnees } from "./store";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
+import { BoutonInstaller } from "./installation";
 import { codeActif } from "./securite";
 import Accueil from "./pages/Accueil";
 import Eleves from "./pages/Eleves";
@@ -147,6 +148,7 @@ export default function App() {
             {n.id === "paiements" && enAttente > 0 && <span className="count">{enAttente}</span>}
           </button>
         ))}
+        <div className="installer"><BoutonInstaller className="btn secondary block" /></div>
       </aside>
 
       <header className="mobile-header">
