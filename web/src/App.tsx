@@ -1,21 +1,23 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet } from "lucide-react";
 import { CONFIG } from "./config";
 import { elevesPaiementEnAttente, useDonnees } from "./store";
 import { ToastHost } from "./components";
 import Accueil from "./pages/Accueil";
 import Eleves from "./pages/Eleves";
+import Groupes from "./pages/Groupes";
 import Agenda from "./pages/Agenda";
 import Seances from "./pages/Seances";
 import Paiements from "./pages/Paiements";
 import Notes from "./pages/Notes";
 import Parametres from "./pages/Parametres";
 
-export type Page = "accueil" | "eleves" | "agenda" | "seances" | "paiements" | "notes" | "parametres";
+export type Page = "accueil" | "eleves" | "groupes" | "agenda" | "seances" | "paiements" | "notes" | "parametres";
 
 const NAV: { id: Page; label: string; icon: typeof Home; mobile: boolean }[] = [
   { id: "accueil", label: "Accueil", icon: Home, mobile: true },
   { id: "eleves", label: "Élèves", icon: GraduationCap, mobile: true },
+  { id: "groupes", label: "Groupes", icon: Users, mobile: true },
   { id: "agenda", label: "Agenda", icon: CalendarDays, mobile: true },
   { id: "seances", label: "Séances", icon: ClipboardCheck, mobile: true },
   { id: "paiements", label: "Paiements", icon: Wallet, mobile: true },
@@ -46,18 +48,25 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  // Thème
+  // Thème (clair / sombre) et style (classique / chic)
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const appliquer = () => {
       const sombre = d.reglages.theme === "sombre" || (d.reglages.theme === "auto" && mq.matches);
-      document.documentElement.dataset.theme = sombre ? "sombre" : "clair";
-      document.documentElement.style.setProperty("--primary", sombre ? CONFIG.couleurPrincipaleSombre : CONFIG.couleurPrincipale);
+      const chic = d.reglages.style === "chic";
+      const root = document.documentElement;
+      root.dataset.theme = sombre ? "sombre" : "clair";
+      root.dataset.style = chic ? "chic" : "classique";
+      const couleur = chic
+        ? (sombre ? CONFIG.couleurChicSombre : CONFIG.couleurChic)
+        : (sombre ? CONFIG.couleurPrincipaleSombre : CONFIG.couleurPrincipale);
+      root.style.setProperty("--primary", couleur);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", sombre ? (chic ? "#121212" : "#0f1115") : (chic ? "#F7F3EC" : couleur));
     };
     appliquer();
     mq.addEventListener("change", appliquer);
     return () => mq.removeEventListener("change", appliquer);
-  }, [d.reglages.theme]);
+  }, [d.reglages.theme, d.reglages.style]);
 
   useEffect(() => {
     document.title = CONFIG.nomApp;
@@ -67,6 +76,7 @@ export default function App() {
     switch (page) {
       case "accueil": return <Accueil aller={aller} ajouterEleve={() => { setAjoutEleve(true); aller("eleves"); }} />;
       case "eleves": return <Eleves ajoutInitial={ajoutEleve} finAjout={() => setAjoutEleve(false)} />;
+      case "groupes": return <Groupes />;
       case "agenda": return <Agenda />;
       case "seances": return <Seances />;
       case "paiements": return <Paiements />;

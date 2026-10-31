@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Download, FileText, MessageCircle, Moon, Save, Sheet, Upload } from "lucide-react";
 import { actions, useDonnees } from "../store";
-import type { Theme } from "../types";
+import type { Style, Theme } from "../types";
 import { Confirmation, Field, Modal, toast } from "../components";
 import { CONFIG } from "../config";
 import { formatDate, formatDuree, formatMontant, lireNombre, numeroInternational, telecharger, versCsv } from "../utils";
@@ -26,6 +26,17 @@ export default function Parametres() {
       <div className="stack">
         <section className="card pad stack">
           <div className="row bold"><Moon size={18} />Apparence</div>
+          <div className="small muted">Style</div>
+          <div className="fields-2">
+            {([["classique", "Classique", "Bleu, moderne et coloré"], ["chic", "Chic", "Ivoire, bleu nuit et or, élégant"]] as [Style, string, string][]).map(([v, l, desc]) => (
+              <button key={v} className={`card apercu-style ${r.style === v ? "on" : ""}`} data-apercu={v} onClick={() => actions.enregistrerReglages({ style: v })}>
+                <span className="apercu-couleurs"><i /><i /><i /></span>
+                <span className="bold">{l}</span>
+                <span className="tiny muted">{desc}</span>
+              </button>
+            ))}
+          </div>
+          <div className="small muted">Luminosité</div>
           <div className="chips">
             {([["auto", "Automatique"], ["clair", "Clair"], ["sombre", "Sombre"]] as [Theme, string][]).map(([v, l]) => (
               <button key={v} className={`chip ${r.theme === v ? "on" : ""}`} onClick={() => actions.enregistrerReglages({ theme: v })}>{l}</button>

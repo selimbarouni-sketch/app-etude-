@@ -3,7 +3,8 @@ import { CalendarPlus, MessageCircle, MessageSquare, Pencil, Phone, Plus, Search
 import { actions, heureProchainCours, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { JOURS, formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele } from "../utils";
+import { AjoutEleves, FormGroupe } from "./Groupes";
+import { formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele } from "../utils";
 
 export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boolean; finAjout: () => void }) {
   const d = useDonnees();
@@ -15,6 +16,7 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
   const [aSupprimer, setASupprimer] = useState<Eleve | null>(null);
   const [nouveauGroupe, setNouveauGroupe] = useState(false);
   const [groupeASupprimer, setGroupeASupprimer] = useState<Groupe | null>(null);
+  const [ajoutDans, setAjoutDans] = useState<Groupe | null>(null);
 
   useEffect(() => {
     if (ajoutInitial) setEdition("nouveau");
@@ -103,6 +105,11 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                 </div>
               ))}
               {g.groupe && (
+                <button className="btn small block" style={{ marginTop: 8 }} onClick={() => setAjoutDans(g.groupe!)}>
+                  <UserPlus size={16} />Ajouter des élèves
+                </button>
+              )}
+              {g.groupe && (
                 <button className="btn secondary small block" style={{ marginTop: 8 }}
                   onClick={() => {
                     const r = actions.programmerProchaineSeance(g.groupe!);
@@ -169,12 +176,13 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
       {groupeASupprimer && (
         <Confirmation
           titre={`Supprimer le groupe ${groupeASupprimer.nom} ?`}
-          message="Le créneau hebdomadaire sera supprimé. Les élèves ne sont pas supprimés."
+          message="Le groupe et son créneau seront supprimés. Les élèves sont conservés et passent « sans groupe »."
           onConfirm={() => actions.supprimerGroupe(groupeASupprimer.id)}
           onClose={() => setGroupeASupprimer(null)}
         />
       )}
-      {nouveauGroupe && <FormGroupe onClose={() => setNouveauGroupe(false)} />}
+      {nouveauGroupe && <FormGroupe onClose={() => setNouveauGroupe(false)} onCree={(g) => { setNouveauGroupe(false); setAjoutDans(g); }} />}
+      {ajoutDans && <AjoutEleves groupe={ajoutDans} onClose={() => setAjoutDans(null)} />}
     </>
   );
 }
@@ -233,38 +241,6 @@ function FormEleve({ eleve, groupes, onClose }: { eleve: Eleve | null; groupes: 
       )}
       <Field label="Anniversaire (jj/mm)"><input className="input" value={f.anniversaire} onChange={set("anniversaire")} placeholder="Facultatif" /></Field>
       <Field label="Observation"><textarea className="input" value={f.observation} onChange={set("observation")} /></Field>
-    </Modal>
-  );
-}
-
-function FormGroupe({ onClose }: { onClose: () => void }) {
-  const [nom, setNom] = useState("");
-  const [jour, setJour] = useState("Samedi");
-  const [debut, setDebut] = useState("14:00");
-  const [fin, setFin] = useState("16:00");
-  const [lieu, setLieu] = useState("Salle principale");
-  return (
-    <Modal
-      titre="Nouveau groupe"
-      onClose={onClose}
-      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
-        <button className="btn" disabled={!nom.trim()} onClick={() => {
-          actions.ajouterGroupe({ nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim() });
-          toast(`Groupe « ${nom.trim()} » créé`);
-          onClose();
-        }}>Créer le groupe</button></>}
-    >
-      <Field label="Nom du groupe *"><input className="input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="ex. Groupe Bac Math" autoFocus /></Field>
-      <Field label="Jour de la semaine">
-        <div className="chips">
-          {JOURS.map((j) => <button key={j} type="button" className={`chip ${jour === j ? "on" : ""}`} onClick={() => setJour(j)}>{j}</button>)}
-        </div>
-      </Field>
-      <div className="fields-2">
-        <Field label="Début"><input className="input" type="time" value={debut} onChange={(e) => setDebut(e.target.value)} /></Field>
-        <Field label="Fin"><input className="input" type="time" value={fin} onChange={(e) => setFin(e.target.value)} /></Field>
-      </div>
-      <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
     </Modal>
   );
 }

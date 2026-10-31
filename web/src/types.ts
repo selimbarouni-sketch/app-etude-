@@ -74,6 +74,7 @@ export interface Note {
 }
 
 export type Theme = "auto" | "clair" | "sombre";
+export type Style = "classique" | "chic";
 
 export interface Reglages {
   seancesParPaiement: number;
@@ -81,6 +82,7 @@ export interface Reglages {
   dureeParDefautHeures: number;
   devise: string;
   theme: Theme;
+  style: Style;
   smsTemplateRappel: string;
   smsTemplatePaiement: string;
 }

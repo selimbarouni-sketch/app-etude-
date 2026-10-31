@@ -5,10 +5,13 @@
 export const CONFIG = {
   nomApp: "ProfSuivi",
   slogan: "Gestion de cours particuliers",
-  /** Couleur principale (boutons, liens, menu actif) */
+  /** Couleur principale du style « Classique » (boutons, liens, menu actif) */
   couleurPrincipale: "#1565C0",
   /** Couleur principale en mode sombre (plus claire pour rester lisible) */
   couleurPrincipaleSombre: "#90CAF9",
+  /** Couleurs du style « Chic » (bleu nuit et or) */
+  couleurChic: "#1F2A44",
+  couleurChicSombre: "#C9A96E",
   deviseParDefaut: "TND",
   /** Indicatif ajouté aux numéros locaux à 8 chiffres pour WhatsApp */
   indicatifPays: "216",
