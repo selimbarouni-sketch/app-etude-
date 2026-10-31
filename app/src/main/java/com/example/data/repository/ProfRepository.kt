@@ -70,22 +70,28 @@ class ProfRepository(private val db: AppDatabase) {
 
     private fun estComptee(seance: SeanceEntity) = seance.statut == "P" || seance.statut == "R"
 
-    suspend fun addSeanceAndIncrementCount(seance: SeanceEntity) = db.withTransaction {
-        seanceDao.insertSeance(seance)
-        if (estComptee(seance)) eleveDao.incrementSessionCount(seance.eleveId)
-    }
-
-    suspend fun addBatchSeances(seances: List<SeanceEntity>) = db.withTransaction {
-        seanceDao.insertSeances(seances)
-        for (seance in seances) {
+    suspend fun addSeanceAndIncrementCount(seance: SeanceEntity) {
+        db.withTransaction {
+            seanceDao.insertSeance(seance)
             if (estComptee(seance)) eleveDao.incrementSessionCount(seance.eleveId)
         }
     }
 
+    suspend fun addBatchSeances(seances: List<SeanceEntity>) {
+        db.withTransaction {
+            seanceDao.insertSeances(seances)
+            for (seance in seances) {
+                if (estComptee(seance)) eleveDao.incrementSessionCount(seance.eleveId)
+            }
+        }
+    }
+
     /** Correction : supprimer une séance ne décrémentait pas le compteur de l'élève. */
-    suspend fun deleteSeance(seance: SeanceEntity) = db.withTransaction {
-        seanceDao.deleteSeance(seance)
-        if (estComptee(seance)) eleveDao.decrementSessionCount(seance.eleveId)
+    suspend fun deleteSeance(seance: SeanceEntity) {
+        db.withTransaction {
+            seanceDao.deleteSeance(seance)
+            if (estComptee(seance)) eleveDao.decrementSessionCount(seance.eleveId)
+        }
     }
 
     // PAIEMENTS
@@ -132,9 +138,11 @@ class ProfRepository(private val db: AppDatabase) {
 
     suspend fun addDossier(nom: String): Long = noteDao.insertDossier(DossierNoteEntity(nom = nom))
 
-    suspend fun deleteDossier(dossier: DossierNoteEntity) = db.withTransaction {
-        noteDao.detacherNotesDuDossier(dossier.id)
-        noteDao.deleteDossier(dossier)
+    suspend fun deleteDossier(dossier: DossierNoteEntity) {
+        db.withTransaction {
+            noteDao.detacherNotesDuDossier(dossier.id)
+            noteDao.deleteDossier(dossier)
+        }
     }
 
     // SETTINGS
