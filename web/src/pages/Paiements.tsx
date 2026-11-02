@@ -1,95 +1,152 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Hourglass, MessageCircle, Pencil, Wallet } from "lucide-react";
-import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
+import { BellRing, Hourglass, MessageCircle, MessageSquare, Pencil, Wallet } from "lucide-react";
+import { actions, groupeDuPaiement, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { MODES_PAIEMENT, estAujourdhui, formatDate, formatMontant, initiales, libelleCycle, lienWhatsapp, lireNombre, remplirModele } from "../utils";
+import { MODES_PAIEMENT, estAujourdhui, formatDate, formatMontant, initiales, libelleCycle, lienSms, lienWhatsapp, lireNombre, remplirModele } from "../utils";
 
+const SANS_GROUPE = "Sans groupe";
+const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Paiements, groupe par groupe (les élèves de groupes différents ne sont jamais mélangés) :
+ * 1. choisir le groupe ; 2. encaisser / relancer ses élèves ; historique des paiements du groupe.
+ */
 export default function Paiements() {
   const d = useDonnees();
   const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
-  const [onglet, setOnglet] = useState<"encaisser" | "attente" | "historique">("encaisser");
-  const [filtreHisto, setFiltreHisto] = useState("");
+  const prixSeance = tarifForfait / Math.max(1, limite);
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
   const [aModifier, setAModifier] = useState<Paiement | null>(null);
+  const [onglet, setOnglet] = useState<"encaisser" | "historique">("encaisser");
 
-  const enAttente = elevesPaiementEnAttente(d);
+  const groupes = useMemo(() => {
+    const liste = d.groupes.map((g) => ({ nom: g.nom, eleves: d.eleves.filter((e) => memeNom(e.groupe, g.nom)) }));
+    const sans = d.eleves.filter((e) => !d.groupes.some((g) => memeNom(g.nom, e.groupe)));
+    if (sans.length) liste.push({ nom: SANS_GROUPE, eleves: sans });
+    return liste.map((g) => ({ ...g, eleves: [...g.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")) }));
+  }, [d.groupes, d.eleves]);
+  const [choix, setChoix] = useState(() => (groupes.find((g) => g.eleves.some((e) => e.sessionsInCurrentCycle >= limite)) ?? groupes[0])?.nom ?? "");
+  const groupe = groupes.find((g) => g.nom === choix) ?? groupes[0];
+
   const estEncaisse = (p: Paiement) => p.encaisse !== false;
-  const totalEncaisse = d.paiements.filter(estEncaisse).reduce((s, p) => s + p.montant, 0);
-  const totalNonEncaisse = d.paiements.filter((p) => !estEncaisse(p)).reduce((s, p) => s + p.montant, 0);
-  const totalAttendu = enAttente.reduce((s, e) => s + Math.floor(e.sessionsInCurrentCycle / limite) * tarifForfait, 0);
   const debutMois = new Date(); debutMois.setDate(1); debutMois.setHours(0, 0, 0, 0);
-  const ceMois = d.paiements.filter((p) => estEncaisse(p) && p.date >= debutMois.getTime()).reduce((s, p) => s + p.montant, 0);
+  const paiementsGroupe = groupe
+    ? d.paiements.filter((p) => { const g = groupeDuPaiement(d, p); return groupe.nom === SANS_GROUPE ? !d.groupes.some((x) => memeNom(x.nom, g)) : memeNom(g, groupe.nom); })
+        .sort((a, b) => b.date - a.date)
+    : [];
+  const aEncaisser = groupe ? groupe.eleves.filter((e) => e.sessionsInCurrentCycle >= limite) : [];
+  const montantDu = aEncaisser.reduce((s, e) => s + e.sessionsInCurrentCycle * prixSeance, 0);
+  const ceMois = paiementsGroupe.filter((p) => estEncaisse(p) && p.date >= debutMois.getTime()).reduce((s, p) => s + p.montant, 0);
+
+  const relancer = (e: Eleve, canal: "wa" | "sms") => {
+    const msg = remplirModele(d.reglages.smsTemplatePaiement, {
+      prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prixSeance), devise, seances: String(e.sessionsInCurrentCycle),
+    });
+    actions.noterRappel(e.id);
+    window.open(canal === "wa" ? lienWhatsapp(e.telephone, msg) : lienSms(e.telephone, msg), "_blank");
+  };
+
+  if (!d.eleves.length) return (<><div className="topbar"><h1>Paiements</h1></div><Vide icone={<Wallet size={48} />} texte="Ajoutez d'abord des élèves." /></>);
 
   return (
     <>
-      <div className="topbar">
-        <h1>Paiements</h1>
+      <div className="topbar"><h1>Paiements</h1></div>
+
+      <div className="small bold muted" style={{ marginBottom: 6 }}>1. Choisissez le groupe</div>
+      <div className="groupes-paiement">
+        {groupes.map((g) => {
+          const dus = g.eleves.filter((e) => e.sessionsInCurrentCycle >= limite).length;
+          return (
+            <button key={g.nom} className={`card groupe-paiement ${groupe?.nom === g.nom ? "on" : ""}`} onClick={() => setChoix(g.nom)}>
+              <span className="bold ellipsis">{g.nom}</span>
+              <span className="tiny muted">{g.eleves.length} élève{g.eleves.length > 1 ? "s" : ""}</span>
+              {dus > 0 ? <span className="badge red">{dus} à encaisser</span> : <span className="badge green">À jour</span>}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid-stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 16 }}>
-        <div className="card stat" style={{ cursor: "default" }}><div className="label">Encaissé ce mois</div><div className="value money" style={{ color: "var(--green)" }}>{formatMontant(ceMois)} <span className="small">{devise}</span></div></div>
-        <div className="card stat" style={{ cursor: "default" }}><div className="label">Encaissé au total</div><div className="value money">{formatMontant(totalEncaisse)} <span className="small">{devise}</span></div></div>
-        {totalNonEncaisse > 0 && <div className="card stat" style={{ cursor: "default" }}><div className="label">Pas encore encaissé</div><div className="value money" style={{ color: "var(--orange)" }}>{formatMontant(totalNonEncaisse)} <span className="small">{devise}</span></div></div>}
-        <div className="card stat" style={{ cursor: "default" }}><div className="label">Somme attendue</div><div className="value money" style={{ color: totalAttendu ? "var(--red)" : "var(--green)" }}>{formatMontant(totalAttendu)} <span className="small">{devise}</span></div></div>
-      </div>
-
-      <div className="tabs">
-        <button className={onglet === "encaisser" ? "on" : ""} onClick={() => setOnglet("encaisser")}>Par groupe</button>
-        <button className={onglet === "attente" ? "on" : ""} onClick={() => setOnglet("attente")}>En retard ({enAttente.length})</button>
-        <button className={onglet === "historique" ? "on" : ""} onClick={() => setOnglet("historique")}>Historique ({d.paiements.length})</button>
-      </div>
-
-      {onglet === "encaisser" ? (
-        <EncaisserParGroupe onPayer={setPayer} />
-      ) : onglet === "attente" ? (
-        enAttente.length === 0 ? (
-          <div className="alert green"><CheckCircle2 size={22} /><div className="bold">Tous les paiements sont à jour !</div></div>
-        ) : (
-          <div className="list">
-            {enAttente.map((e) => {
-              const nbForfaits = Math.floor(e.sessionsInCurrentCycle / limite);
-              const msg = remplirModele(d.reglages.smsTemplatePaiement, { prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(tarifForfait * nbForfaits), devise });
-              return (
-                <div key={e.id} className="card item" style={{ borderColor: "color-mix(in srgb, var(--red) 35%, var(--border))" }}>
-                  <div className="grow">
-                    <div className="bold ellipsis">{e.prenom} {e.nom}</div>
-                    <div className="small muted">{e.classe} · {e.sessionsInCurrentCycle} séances / {limite}</div>
-                    <div className="small bold" style={{ color: "var(--red)" }}>
-                      À régler : {formatMontant(tarifForfait * nbForfaits)} {devise}{nbForfaits > 1 && ` (${nbForfaits} forfaits)`}
-                    </div>
-                  </div>
-                  <a className="icon-btn" href={lienWhatsapp(e.telephone, msg)} target="_blank" rel="noreferrer" title="Envoyer un rappel WhatsApp" style={{ color: "var(--green)" }}><MessageCircle size={19} /></a>
-                  <button className="btn success small" onClick={() => setPayer(e)}><Wallet size={16} />Reçu</button>
-                </div>
-              );
-            })}
+      {groupe && (
+        <>
+          <div className="grid-stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", margin: "16px 0" }}>
+            <div className="card stat" style={{ cursor: "default" }}><div className="label">À encaisser · {groupe.nom}</div><div className="value money" style={{ color: montantDu ? "var(--red)" : "var(--green)" }}>{formatMontant(montantDu)} <span className="small">{devise}</span></div></div>
+            <div className="card stat" style={{ cursor: "default" }}><div className="label">Encaissé ce mois</div><div className="value money" style={{ color: "var(--green)" }}>{formatMontant(ceMois)} <span className="small">{devise}</span></div></div>
           </div>
-        )
-      ) : d.paiements.length === 0 ? (
-        <Vide icone={<Wallet size={48} />} texte="Aucun paiement enregistré." />
-      ) : (
-        <div className="list">
-          <input className="input" placeholder="Filtrer par élève…" value={filtreHisto} onChange={(e) => setFiltreHisto(e.target.value)} />
-          {[...d.paiements].sort((a, b) => b.date - a.date).filter((p) => !filtreHisto || p.nomEleve.toLowerCase().includes(filtreHisto.toLowerCase())).map((p) => (
-            <div key={p.id} className="card item clickable" onClick={() => setAModifier(p)}>
-              <div className="grow">
-                <div className="bold ellipsis">{p.nomEleve}</div>
-                <div className="small">Payé le <b>{formatDate(p.date)}</b> · <b>{p.nbSeancesReglees} séance{p.nbSeancesReglees > 1 ? "s" : ""}</b> · {p.modePaiement}</div>
-                {p.observation && <div className="tiny muted">{p.observation}</div>}
-                {!estEncaisse(p) && (
-                  <button className="badge orange" style={{ border: 0, cursor: "pointer", marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
-                    onClick={(ev) => { ev.stopPropagation(); actions.modifierPaiement({ ...p, encaisse: true }); toast("Marqué comme encaissé"); }}>
-                    <Hourglass size={12} />Non encaissé · marquer encaissé
-                  </button>
-                )}
+
+          <div className="tabs">
+            <button className={onglet === "encaisser" ? "on" : ""} onClick={() => setOnglet("encaisser")}>2. Élèves du groupe</button>
+            <button className={onglet === "historique" ? "on" : ""} onClick={() => setOnglet("historique")}>Historique ({paiementsGroupe.length})</button>
+          </div>
+
+          {onglet === "encaisser" ? (
+            groupe.eleves.length === 0 ? <div className="card pad muted small">Aucun élève dans ce groupe.</div> : (
+              <div className="list">
+                {groupe.eleves.map((e) => {
+                  const dues = e.sessionsInCurrentCycle;
+                  const dernier = d.paiements.filter((p) => p.eleveId === e.id).sort((a, b) => b.date - a.date)[0];
+                  const payeAujourdhui = dernier && estAujourdhui(dernier.date) && dues <= 0;
+                  const doit = dues >= limite;
+                  return (
+                    <div key={e.id} className="card pad stack" style={{ gap: 8, ...(doit ? { borderColor: "color-mix(in srgb, var(--red) 35%, var(--border))" } : {}) }}>
+                      <div className="row">
+                        <div className="avatar">{initiales(e.prenom, e.nom)}</div>
+                        <div className="grow">
+                          <div className="row" style={{ gap: 6 }}>
+                            <span className="bold ellipsis">{e.prenom} {e.nom}</span>
+                            {payeAujourdhui ? <span className="badge green">✓ Payé</span>
+                              : <span className={`badge ${doit ? "red" : dues > 0 ? "orange" : "green"}`}>{libelleCycle(dues, limite)}</span>}
+                          </div>
+                          <div className="small muted">
+                            {doit ? <>{dues} séances à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prixSeance)} {devise}</b></>
+                              : dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} faite{dues > 1 ? "s" : ""} · encaissement à {limite}</>
+                              : dues < 0 ? <>Crédit : {-dues} séance(s) payée(s) d'avance</> : <>À jour</>}
+                          </div>
+                          <div className="tiny muted">
+                            {dernier ? <>Dernier paiement : {formatDate(dernier.date)} · {formatMontant(dernier.montant)} {devise} · {dernier.nbSeancesReglees} séance(s)</> : "Aucun paiement"}
+                            {doit && e.dernierRappel && <> · relancé le {formatDate(e.dernierRappel)}</>}
+                          </div>
+                        </div>
+                      </div>
+                      {doit && (
+                        <div className="row wrap" style={{ gap: 6 }}>
+                          <button className="btn success small" onClick={() => setPayer(e)}><Wallet size={15} />Encaisser</button>
+                          {e.telephone.trim() && <>
+                            <button className="btn secondary small" onClick={() => relancer(e, "wa")}><MessageCircle size={15} />Relance WhatsApp</button>
+                            <button className="btn secondary small" onClick={() => relancer(e, "sms")}><MessageSquare size={15} />SMS</button>
+                          </>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <span className="money" style={{ color: estEncaisse(p) ? "var(--green)" : "var(--orange)" }}>+{formatMontant(p.montant)} {devise}</span>
-              <Pencil size={15} className="muted" />
+            )
+          ) : paiementsGroupe.length === 0 ? (
+            <Vide icone={<Wallet size={48} />} texte="Aucun paiement pour ce groupe." />
+          ) : (
+            <div className="list">
+              {paiementsGroupe.map((p) => (
+                <div key={p.id} className="card item clickable" onClick={() => setAModifier(p)}>
+                  <div className="grow">
+                    <div className="bold ellipsis">{p.nomEleve}</div>
+                    <div className="small">Payé le <b>{formatDate(p.date)}</b> · <b>{p.nbSeancesReglees} séance{p.nbSeancesReglees > 1 ? "s" : ""}</b> · {p.modePaiement}</div>
+                    {p.observation && <div className="tiny muted">{p.observation}</div>}
+                    {!estEncaisse(p) && (
+                      <button className="badge orange" style={{ border: 0, cursor: "pointer", marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
+                        onClick={(ev) => { ev.stopPropagation(); actions.modifierPaiement({ ...p, encaisse: true }); toast("Marqué comme encaissé"); }}>
+                        <Hourglass size={12} />Non encaissé · marquer encaissé
+                      </button>
+                    )}
+                  </div>
+                  <span className="money" style={{ color: estEncaisse(p) ? "var(--green)" : "var(--orange)" }}>+{formatMontant(p.montant)} {devise}</span>
+                  <Pencil size={15} className="muted" />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} />}
@@ -105,12 +162,38 @@ export default function Paiements() {
         <Confirmation
           titre="Annuler ce versement ?"
           message={`${aSupprimer.nomEleve} — ${formatMontant(aSupprimer.montant)} ${devise} du ${formatDate(aSupprimer.date)}. Les ${aSupprimer.nbSeancesReglees} séances redeviendront à payer.`}
-          libelle="Annuler le paiement"
+          libelle="Annuler le versement"
           onConfirm={() => actions.supprimerPaiement(aSupprimer.id)}
           onClose={() => setASupprimer(null)}
         />
       )}
     </>
+  );
+}
+
+/** Relances de paiement à envoyer (affiché sur l'accueil). */
+export function RelancesPaiement({ eleves }: { eleves: Eleve[] }) {
+  const d = useDonnees();
+  const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
+  const prixSeance = tarifForfait / Math.max(1, limite);
+  if (!eleves.length) return null;
+  return (
+    <div className="card pad stack" style={{ gap: 8 }}>
+      <div className="row bold"><BellRing size={18} style={{ color: "var(--orange)" }} />Relances de paiement à envoyer ({eleves.length})</div>
+      <div className="tiny muted">Élèves à {limite} séances ou plus, pas encore relancés (ou relancés il y a plus de {d.reglages.relanceJours} jours).</div>
+      {eleves.map((e) => {
+        const msg = remplirModele(d.reglages.smsTemplatePaiement, {
+          prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prixSeance), devise, seances: String(e.sessionsInCurrentCycle),
+        });
+        return (
+          <div key={e.id} className="row wrap" style={{ gap: 6 }}>
+            <div className="grow small"><b>{e.prenom} {e.nom}</b> <span className="muted">· {e.groupe || SANS_GROUPE} · {e.sessionsInCurrentCycle} séances</span></div>
+            <a className="btn success small" href={lienWhatsapp(e.telephone, msg)} target="_blank" rel="noreferrer" onClick={() => actions.noterRappel(e.id)}><MessageCircle size={14} />WhatsApp</a>
+            <a className="btn secondary small" href={lienSms(e.telephone, msg)} onClick={() => actions.noterRappel(e.id)}><MessageSquare size={14} />SMS</a>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -194,86 +277,3 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
   );
 }
 
-/** Encaissement : on choisit un groupe, puis on encaisse élève par élève. */
-function EncaisserParGroupe({ onPayer }: { onPayer: (e: Eleve) => void }) {
-  const d = useDonnees();
-  const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
-  const prixSeance = tarifForfait / Math.max(1, limite);
-  const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-
-  const groupes = useMemo(() => {
-    const liste = d.groupes.map((g) => ({ nom: g.nom, eleves: d.eleves.filter((e) => memeNom(e.groupe, g.nom)) }));
-    const sans = d.eleves.filter((e) => !d.groupes.some((g) => memeNom(g.nom, e.groupe)));
-    if (sans.length) liste.push({ nom: "Sans groupe", eleves: sans });
-    return liste.map((g) => ({ ...g, eleves: [...g.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")) }));
-  }, [d.groupes, d.eleves]);
-
-  const [choix, setChoix] = useState(() => (groupes.find((g) => g.eleves.length) ?? groupes[0])?.nom ?? "");
-  const groupe = groupes.find((g) => g.nom === choix) ?? groupes[0];
-
-  if (!d.eleves.length) return <Vide icone={<Wallet size={48} />} texte="Ajoutez d'abord des élèves." />;
-
-  const dernierPaiement = (e: Eleve) => d.paiements.filter((p) => p.eleveId === e.id).sort((a, b) => b.date - a.date)[0];
-  const aPayer = groupe ? groupe.eleves.reduce((s, e) => s + Math.max(0, e.sessionsInCurrentCycle) * prixSeance, 0) : 0;
-
-  return (
-    <div className="stack">
-      <div className="small bold muted">1. Choisissez le groupe</div>
-      <div className="chips">
-        {groupes.map((g) => {
-          const dus = g.eleves.filter((e) => e.sessionsInCurrentCycle > 0).length;
-          return (
-            <button key={g.nom} className={`chip ${groupe?.nom === g.nom ? "on" : ""}`} onClick={() => setChoix(g.nom)}>
-              {g.nom} <span className="muted">({g.eleves.length})</span>{dus > 0 && <span className="badge red" style={{ marginLeft: 6, padding: "0 7px" }}>{dus}</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {groupe && (
-        <>
-          <div className="row" style={{ marginTop: 6 }}>
-            <div className="small bold muted grow">2. Encaissez élève par élève</div>
-            <div className="small">Reste à encaisser : <b className="money">{formatMontant(aPayer)} {devise}</b></div>
-          </div>
-          {groupe.eleves.length === 0 ? (
-            <div className="card pad muted small">Aucun élève dans ce groupe.</div>
-          ) : (
-            <div className="list">
-              {groupe.eleves.map((e) => {
-                const dernier = dernierPaiement(e);
-                const payeAujourdhui = dernier && estAujourdhui(dernier.date);
-                const dues = e.sessionsInCurrentCycle;
-                return (
-                  <div key={e.id} className="card item" style={dues >= limite ? { borderColor: "color-mix(in srgb, var(--red) 35%, var(--border))" } : undefined}>
-                    <div className="avatar">{initiales(e.prenom, e.nom)}</div>
-                    <div className="grow">
-                      <div className="row" style={{ gap: 6 }}>
-                        <span className="bold ellipsis">{e.prenom} {e.nom}</span>
-                        {payeAujourdhui && dues <= 0
-                          ? <span className="badge green" style={{ flexShrink: 0 }}>✓ Payé</span>
-                          : <span className={`badge ${dues >= limite ? "red" : dues > 0 ? "orange" : "green"}`} style={{ flexShrink: 0 }}>{libelleCycle(dues, limite)}</span>}
-                      </div>
-                      <div className="small muted">
-                        {dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prixSeance)} {devise}</b></>
-                          : dues < 0 ? <>Crédit : {-dues} séance(s) payée(s) d'avance</> : <>À jour · compteur à 0</>}
-                      </div>
-                      <div className="tiny muted">
-                        {dernier ? <>Dernier paiement : {formatDate(dernier.date)} · {formatMontant(dernier.montant)} {devise} · {dernier.nbSeancesReglees} séance(s)</> : "Aucun paiement"}
-                      </div>
-                    </div>
-                    {dues >= limite ? (
-                      <button className="btn success small" onClick={() => onPayer(e)}><Wallet size={15} />Encaisser</button>
-                    ) : (
-                      <span className="tiny muted" style={{ textAlign: "right", maxWidth: 90 }}>Encaissement à {limite} séances</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}

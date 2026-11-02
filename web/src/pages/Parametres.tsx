@@ -14,6 +14,7 @@ export default function Parametres() {
   const r = d.reglages;
   const [tarif, setTarif] = useState({ seances: String(r.seancesParPaiement), forfait: String(r.tarifForfait), duree: String(r.dureeParDefautHeures), devise: r.devise });
   const [modeles, setModeles] = useState({ rappel: r.smsTemplateRappel, paiement: r.smsTemplatePaiement });
+  const [relance, setRelance] = useState(String(r.relanceJours));
   const [pdf, setPdf] = useState(false);
   const [whatsapp, setWhatsapp] = useState(false);
   const [importer, setImporter] = useState<string | null>(null);
@@ -101,8 +102,11 @@ export default function Parametres() {
           <Field label="Rappel de cours"><textarea className="input" value={modeles.rappel} onChange={(e) => setModeles({ ...modeles, rappel: e.target.value })} /></Field>
           <div className="tiny muted">Mots-clés : {"{prenom} {nom} {classe} {heure}"}</div>
           <Field label="Rappel de paiement"><textarea className="input" value={modeles.paiement} onChange={(e) => setModeles({ ...modeles, paiement: e.target.value })} /></Field>
-          <div className="tiny muted">Mots-clés : {"{prenom} {nom} {classe} {montant} {devise}"}</div>
-          <button className="btn" onClick={() => { actions.enregistrerReglages({ smsTemplateRappel: modeles.rappel, smsTemplatePaiement: modeles.paiement }); toast("Modèles enregistrés"); }}><Save size={18} />Enregistrer les modèles</button>
+          <div className="tiny muted">Mots-clés : {"{prenom} {nom} {classe} {seances} {montant} {devise}"}</div>
+          <Field label="Relancer un élève qui n'a pas payé tous les … jours">
+            <input className="input" inputMode="numeric" value={relance} onChange={(e) => setRelance(e.target.value.replace(/\D/g, ""))} />
+          </Field>
+          <button className="btn" onClick={() => { actions.enregistrerReglages({ smsTemplateRappel: modeles.rappel, smsTemplatePaiement: modeles.paiement, relanceJours: Math.max(1, parseInt(relance, 10) || 3) }); toast("Modèles enregistrés"); }}><Save size={18} />Enregistrer les modèles</button>
         </section>
 
         <section className="card pad stack">
