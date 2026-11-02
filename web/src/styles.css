@@ -162,7 +162,7 @@ a { color: var(--primary); }
   .app { flex-direction: column; }
   .topbar h1 { font-size: 20px; }
   .bottom-nav {
-    display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     background: var(--surface); border-top: 1px solid var(--border); padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   }
   .bottom-nav button {

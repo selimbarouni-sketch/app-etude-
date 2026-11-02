@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Hourglass, MessageCircle, Pencil, Plus, Wallet } from "lucide-react";
+import { CheckCircle2, Hourglass, MessageCircle, Pencil, Wallet } from "lucide-react";
 import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
@@ -11,7 +11,6 @@ export default function Paiements() {
   const [onglet, setOnglet] = useState<"encaisser" | "attente" | "historique">("encaisser");
   const [filtreHisto, setFiltreHisto] = useState("");
   const [payer, setPayer] = useState<Eleve | null>(null);
-  const [choisir, setChoisir] = useState(false);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
   const [aModifier, setAModifier] = useState<Paiement | null>(null);
 
@@ -27,7 +26,6 @@ export default function Paiements() {
     <>
       <div className="topbar">
         <h1>Paiements</h1>
-        <button className="btn secondary" onClick={() => setChoisir(true)} disabled={!d.eleves.length}><Plus size={18} />Encaisser</button>
       </div>
 
       <div className="grid-stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 16 }}>
@@ -94,19 +92,6 @@ export default function Paiements() {
         </div>
       )}
 
-      {choisir && (
-        <Modal titre="Encaisser un paiement" onClose={() => setChoisir(false)}>
-          <div className="small muted">Choisissez l'élève (y compris pour un paiement à l'avance) :</div>
-          <div className="list">
-            {[...d.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")).map((e) => (
-              <button key={e.id} className="card item clickable" style={{ textAlign: "left", width: "100%" }} onClick={() => { setChoisir(false); setPayer(e); }}>
-                <div className="grow"><div className="bold">{e.prenom} {e.nom}</div><div className="small muted">{e.classe}</div></div>
-                <span className="badge blue">{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
       {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} />}
       {aModifier && (
         <FormPaiement
@@ -135,7 +120,7 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
   const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
   // Par défaut : on règle toutes les séances faites → le compteur repart de 0
-  const nbInitial = paiement?.nbSeancesReglees ?? ((eleve?.sessionsInCurrentCycle ?? 0) > 0 ? eleve!.sessionsInCurrentCycle : seancesParPaiement);
+  const nbInitial = paiement?.nbSeancesReglees ?? Math.max(seancesParPaiement, eleve?.sessionsInCurrentCycle ?? 0);
   const [nb, setNb] = useState(nbInitial);
   const [montant, setMontant] = useState(String(paiement?.montant ?? Math.round(prixSeance * nbInitial * 100) / 100));
   const [montantModifie, setMontantModifie] = useState(!!paiement);
@@ -146,8 +131,10 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
   // Séances faites non payées avant ce versement
   const dues = (eleve?.sessionsInCurrentCycle ?? 0) + (paiement?.nbSeancesReglees ?? 0);
   const reste = dues - nb;
+  // L'encaissement se fait par forfait : au moins le nombre de séances du forfait (ex. 4)
+  const minimum = paiement ? 1 : seancesParPaiement;
   const changerNb = (n: number) => {
-    const v = Math.min(99, Math.max(1, Math.round(n)));
+    const v = Math.min(99, Math.max(minimum, Math.round(n)));
     setNb(v);
     if (!montantModifie) setMontant(String(Math.round(prixSeance * v * 100) / 100));
   };
@@ -179,7 +166,7 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
           <input className="input" style={{ width: 70, textAlign: "center", fontWeight: 700 }} inputMode="numeric" value={nb}
             onChange={(e) => changerNb(lireNombre(e.target.value, nb))} />
           <button className="btn secondary" type="button" onClick={() => changerNb(nb + 1)} aria-label="Plus">+</button>
-          {Array.from(new Set([...(dues > 0 ? [dues] : []), seancesParPaiement, seancesParPaiement * 2])).map((n) => (
+          {Array.from(new Set([...(dues >= seancesParPaiement ? [dues] : []), seancesParPaiement, seancesParPaiement * 2])).map((n) => (
             <button key={n} type="button" className={`chip ${nb === n ? "on" : ""}`} onClick={() => changerNb(n)}>{n} séances</button>
           ))}
         </div>
@@ -275,7 +262,11 @@ function EncaisserParGroupe({ onPayer }: { onPayer: (e: Eleve) => void }) {
                         {dernier ? <>Dernier paiement : {formatDate(dernier.date)} · {formatMontant(dernier.montant)} {devise} · {dernier.nbSeancesReglees} séance(s)</> : "Aucun paiement"}
                       </div>
                     </div>
-                    <button className="btn success small" onClick={() => onPayer(e)}><Wallet size={15} />Encaisser</button>
+                    {dues >= limite ? (
+                      <button className="btn success small" onClick={() => onPayer(e)}><Wallet size={15} />Encaisser</button>
+                    ) : (
+                      <span className="tiny muted" style={{ textAlign: "right", maxWidth: 90 }}>Encaissement à {limite} séances</span>
+                    )}
                   </div>
                 );
               })}

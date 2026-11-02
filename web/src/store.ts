@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { CONFIG } from "./config";
-import type { Donnees, Eleve, Groupe, Note, Paiement, Reglages, RendezVous, Seance, Statut } from "./types";
-import { combinerDateHeure, dureeEntre, prochainCreneau, uid } from "./utils";
+import type { Donnees, Eleve, Groupe, Note, Paiement, Reglages, Seance, Statut } from "./types";
+import { debutDuJour, jourSemaine, uid } from "./utils";
 
 /**
  * Les données sont enregistrées dans le navigateur (localStorage) de l'appareil.
@@ -157,80 +157,47 @@ export const actions = {
       eleves: [...d.eleves, ...liste.map((e) => ({ ...e, id: uid(), dateInscription: now, sessionsInCurrentCycle: 0, totalSeancesRealisees: 0 }))],
     }));
   },
-  /** Ajoute la prochaine séance hebdomadaire du groupe à l'agenda. Renvoie sa date. */
-  programmerProchaineSeance(groupe: Groupe): { date: number; dejaPresent: boolean } {
-    const date = prochainCreneau(groupe.jourSemaine, groupe.heureDebut);
-    const nom = `Groupe : ${groupe.nom}`;
-    const dejaPresent = etat.rendezVous.some((r) => r.nomEleve === nom && r.date === date && !r.annule);
-    if (!dejaPresent) {
-      const rdv: RendezVous = {
-        id: uid(),
-        eleveId: null,
-        nomEleve: nom,
-        date,
-        heure: groupe.heureDebut,
-        dureeHeures: dureeEntre(groupe.heureDebut, groupe.heureFin) ?? etat.reglages.dureeParDefautHeures,
-        lieu: groupe.lieu,
-        remarque: `Séance hebdomadaire (${groupe.jourSemaine} ${groupe.heureDebut}-${groupe.heureFin})`,
-      };
-      maj((d) => ({
-        ...d,
-        rendezVous: [...d.rendezVous, rdv],
-        groupes: d.groupes.map((g) => (g.id === groupe.id ? { ...g, prochaineSeance: date } : g)),
-      }));
-    }
-    return { date, dejaPresent };
-  },
-
-  // ---------- Rendez-vous ----------
-  ajouterRendezVous(r: Omit<RendezVous, "id" | "date"> & { jour: number }) {
-    const { jour, ...reste } = r;
-    maj((d) => ({ ...d, rendezVous: [...d.rendezVous, { ...reste, id: uid(), date: combinerDateHeure(jour, r.heure) }] }));
-  },
-  /** Reporte une séance à une nouvelle date/heure (et la rétablit si elle était annulée). */
-  reporterRendezVous(id: string, jour: number, heure: string) {
-    maj((d) => ({ ...d, rendezVous: d.rendezVous.map((r) => (r.id === id ? { ...r, date: combinerDateHeure(jour, heure), heure, annule: false } : r)) }));
-  },
-  annulerRendezVous(id: string, annule: boolean) {
-    maj((d) => ({ ...d, rendezVous: d.rendezVous.map((r) => (r.id === id ? { ...r, annule } : r)) }));
-  },
-  supprimerRendezVous(id: string) {
-    maj((d) => ({ ...d, rendezVous: d.rendezVous.filter((x) => x.id !== id) }));
-  },
 
   // ---------- Séances ----------
-  enregistrerAppel(seances: Omit<Seance, "id">[]) {
+  /**
+   * Enregistre l'appel. Renvoie les élèves qui viennent d'atteindre le nombre de séances
+   * à payer (pour envoyer la notification « paiement attendu »).
+   */
+  enregistrerAppel(seances: Omit<Seance, "id">[]): Eleve[] {
+    const limite = etat.reglages.seancesParPaiement;
+    const parEleve = new Map<string, number>();
+    seances.forEach((s) => compte(s.statut) && parEleve.set(s.eleveId, (parEleve.get(s.eleveId) ?? 0) + 1));
+    const atteints = etat.eleves.filter((e) => {
+      const n = parEleve.get(e.id) ?? 0;
+      return n > 0 && e.sessionsInCurrentCycle < limite && e.sessionsInCurrentCycle + n >= limite;
+    });
+    maj((d) => ({
+      ...d,
+      seances: [...seances.map((s) => ({ ...s, id: uid() })), ...d.seances],
+      eleves: d.eleves.map((e) => {
+        const n = parEleve.get(e.id) ?? 0;
+        return n ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle + n, totalSeancesRealisees: e.totalSeancesRealisees + n } : e;
+      }),
+    }));
+    return atteints;
+  },
+  /** Correction le jour même : supprime l'appel d'un groupe (les compteurs sont rétablis) pour le refaire. */
+  annulerAppel(groupe: string, jour: number) {
     maj((d) => {
+      const cibles = appelDuJour(d, groupe, jour);
+      const ids = new Set(cibles.map((s) => s.id));
       const parEleve = new Map<string, number>();
-      seances.forEach((s) => compte(s.statut) && parEleve.set(s.eleveId, (parEleve.get(s.eleveId) ?? 0) + 1));
+      cibles.forEach((s) => compte(s.statut) && parEleve.set(s.eleveId, (parEleve.get(s.eleveId) ?? 0) + 1));
       return {
         ...d,
-        seances: [...seances.map((s) => ({ ...s, id: uid() })), ...d.seances],
+        seances: d.seances.filter((s) => !ids.has(s.id)),
         eleves: d.eleves.map((e) => {
           const n = parEleve.get(e.id) ?? 0;
-          return n ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle + n, totalSeancesRealisees: e.totalSeancesRealisees + n } : e;
+          return n ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - n, totalSeancesRealisees: Math.max(0, e.totalSeancesRealisees - n) } : e;
         }),
       };
     });
   },
-  supprimerSeance(id: string) {
-    maj((d) => {
-      const s = d.seances.find((x) => x.id === id);
-      if (!s) return d;
-      return {
-        ...d,
-        seances: d.seances.filter((x) => x.id !== id),
-        eleves: compte(s.statut)
-          ? d.eleves.map((e) =>
-              e.id === s.eleveId
-                ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - 1, totalSeancesRealisees: Math.max(0, e.totalSeancesRealisees - 1) }
-                : e
-            )
-          : d.eleves,
-      };
-    });
-  },
-
   // ---------- Paiements ----------
   enregistrerPaiement(p: { eleve: Eleve; montant: number; modePaiement: string; nbSeances: number; observation: string; encaisse?: boolean }) {
     maj((d) => ({
@@ -325,11 +292,18 @@ export function elevesPaiementEnAttente(d: Donnees): Eleve[] {
 }
 
 export function heureProchainCours(d: Donnees, e: Eleve): string {
-  const now = Date.now();
-  const rdv = d.rendezVous
-    .filter((r) => !r.annule && r.date >= now && (r.eleveId === e.id || (e.groupe && r.nomEleve === `Groupe : ${e.groupe}`)))
-    .sort((a, b) => a.date - b.date)[0];
-  if (rdv) return rdv.heure;
   const g = d.groupes.find((x) => x.nom.toLowerCase() === e.groupe.toLowerCase());
   return g?.heureDebut ?? "l'heure prévue";
+}
+
+/** Séances enregistrées pour un groupe un jour donné (= l'appel de ce jour). */
+export function appelDuJour(d: Donnees, groupe: string, jour: number): Seance[] {
+  const debut = debutDuJour(jour);
+  return d.seances.filter((s) => s.groupe.toLowerCase() === groupe.toLowerCase() && s.date >= debut && s.date < debut + 86_400_000);
+}
+
+/** Groupes qui ont cours ce jour-là (d'après leur créneau hebdomadaire). */
+export function groupesDuJour(d: Donnees, jour = Date.now()): Groupe[] {
+  const nom = jourSemaine(jour);
+  return d.groupes.filter((g) => g.jourSemaine.toLowerCase() === nom.toLowerCase()).sort((a, b) => a.heureDebut.localeCompare(b.heureDebut));
 }

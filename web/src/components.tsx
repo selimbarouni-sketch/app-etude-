@@ -82,3 +82,27 @@ export function ToastHost() {
   }, []);
   return msg ? <div className="toast" role="status">{msg}</div> : null;
 }
+
+/** Action sensible : demande le code d'accès avant d'exécuter onValide. */
+export function DemandeCode({
+  titre, message, libelle = "Confirmer", onValide, onClose,
+}: { titre: string; message: ReactNode; libelle?: string; onValide: () => void; onClose: () => void }) {
+  const [code, setCode] = useState("");
+  const [erreur, setErreur] = useState(false);
+  const valider = async () => {
+    const { verifierCode } = await import("./securite");
+    if (await verifierCode(code)) { onValide(); onClose(); } else { setErreur(true); setCode(""); }
+  };
+  return (
+    <Modal titre={titre} onClose={onClose}
+      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button><button className="btn danger" disabled={code.length < 4} onClick={valider}>{libelle}</button></>}>
+      <div className="muted">{message}</div>
+      <Field label="Code d'accès">
+        <input className="input" type="password" inputMode="numeric" autoComplete="off" autoFocus value={code}
+          onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 8)); setErreur(false); }}
+          onKeyDown={(e) => e.key === "Enter" && code.length >= 4 && valider()} />
+      </Field>
+      {erreur && <div className="small" style={{ color: "var(--red)" }}>Code incorrect.</div>}
+    </Modal>
+  );
+}

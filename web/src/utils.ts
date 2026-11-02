@@ -9,6 +9,9 @@ export const uid = (): string =>
     ? crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2);
 
+/** "Lundi", "Mardi"… pour une date */
+export const jourSemaine = (ms: number) => JOURS[(new Date(ms).getDay() + 6) % 7];
+
 export function debutDuJour(ms: number): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
