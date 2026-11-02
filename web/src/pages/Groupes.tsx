@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { CalendarPlus, Clock, MapPin, Pencil, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
+import { Clock, MapPin, MessageCircle, Pencil, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
 import { actions, useDonnees } from "../store";
+import MessageWhatsApp from "./MessageWhatsApp";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { JOURS, formatJourCourt, initiales, libelleCycle } from "../utils";
+import { JOURS, initiales, libelleCycle } from "../utils";
 
 const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -15,6 +16,7 @@ export default function Groupes() {
   const [ajoutDans, setAjoutDans] = useState<Groupe | null>(null);
   const [detail, setDetail] = useState<Groupe | null>(null);
   const [aSupprimer, setASupprimer] = useState<Groupe | null>(null);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
   const elevesDe = (g: Groupe) => d.eleves.filter((e) => memeNom(e.groupe, g.nom)).sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr"));
   const sansGroupe = d.eleves.filter((e) => !d.groupes.some((g) => memeNom(g.nom, e.groupe)));
@@ -68,10 +70,7 @@ export default function Groupes() {
 
                 <div className="groupe-actions">
                   <button className="btn small" onClick={() => setAjoutDans(g)}><UserPlus size={15} />Ajouter des élèves</button>
-                  <button className="btn secondary small" onClick={() => {
-                    const r = actions.programmerProchaineSeance(g);
-                    toast(r.dejaPresent ? "Cette séance est déjà dans l'agenda" : `Séance ajoutée : ${formatJourCourt(r.date)}`);
-                  }}><CalendarPlus size={15} />Programmer</button>
+                  <button className="btn secondary small" disabled={!eleves.length} onClick={() => setWhatsapp(g.nom)}><MessageCircle size={15} />WhatsApp</button>
                 </div>
               </div>
             );
@@ -87,6 +86,7 @@ export default function Groupes() {
       )}
       {edition && <FormGroupe groupe={edition} onClose={() => setEdition(null)} />}
       {ajoutDans && <AjoutEleves groupe={ajoutDans} onClose={() => setAjoutDans(null)} />}
+      {whatsapp && <MessageWhatsApp groupeInitial={whatsapp} onClose={() => setWhatsapp(null)} />}
 
       {groupeDetail && (
         <Modal titre={groupeDetail.nom} onClose={() => setDetail(null)}

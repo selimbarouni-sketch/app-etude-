@@ -26,7 +26,6 @@ enum class NavigationTab(
     ACCUEIL("Accueil", Icons.Filled.Home, Icons.Outlined.Home),
     ELEVES("Élèves", Icons.Filled.School, Icons.Outlined.School),
     GROUPES("Groupes", Icons.Filled.Groups, Icons.Outlined.Groups),
-    RENDEZ_VOUS("Agenda", Icons.Filled.Event, Icons.Outlined.Event),
     SEANCES("Séances", Icons.Filled.MenuBook, Icons.Outlined.MenuBook),
     PAIEMENTS("Paiements", Icons.Filled.Payments, Icons.Outlined.Payments),
     NOTES("Notes", Icons.Filled.Notes, Icons.Outlined.Notes, dansBarre = false),
@@ -87,7 +86,6 @@ fun MainScreenContainer(viewModel: ProfViewModel) {
                     NavigationTab.ACCUEIL -> AccueilScreen(
                         viewModel = viewModel,
                         onNavigateToEleves = { selectedTab = NavigationTab.ELEVES },
-                        onNavigateToRendezVous = { selectedTab = NavigationTab.RENDEZ_VOUS },
                         onNavigateToSeances = { selectedTab = NavigationTab.SEANCES },
                         onNavigateToPaiements = { selectedTab = NavigationTab.PAIEMENTS },
                         onAddEleveClick = {
@@ -101,7 +99,6 @@ fun MainScreenContainer(viewModel: ProfViewModel) {
                         onAddDialogDismissed = { triggerAddEleveDialogFromAccueil = false }
                     )
                     NavigationTab.GROUPES -> GroupesScreen(viewModel = viewModel)
-                    NavigationTab.RENDEZ_VOUS -> RendezVousScreen(viewModel = viewModel)
                     NavigationTab.SEANCES -> SeancesScreen(viewModel = viewModel)
                     NavigationTab.PAIEMENTS -> PaiementsScreen(viewModel = viewModel)
                     NavigationTab.NOTES -> NotesScreen(viewModel = viewModel)

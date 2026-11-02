@@ -1,16 +1,15 @@
-import { AlertTriangle, CalendarDays, CalendarPlus, ClipboardCheck, GraduationCap, UserPlus, Wallet } from "lucide-react";
+import { AlertTriangle, CalendarDays, ClipboardCheck, GraduationCap, UserPlus, Wallet } from "lucide-react";
 import type { Page } from "../App";
-import { actions, elevesPaiementEnAttente, useDonnees } from "../store";
-import { toast } from "../components";
+import { appelDuJour, elevesPaiementEnAttente, groupesDuJour, useDonnees } from "../store";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { CONFIG } from "../config";
 import { useState } from "react";
-import { estAujourdhui, formatDateLongue, formatDuree, formatJourCourt, initiales, libelleCycle } from "../utils";
+import { estAujourdhui, formatDateLongue, initiales, libelleCycle } from "../utils";
 
 export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => void; ajouterEleve: () => void }) {
   const d = useDonnees();
   const now = Date.now();
-  const rdvJour = d.rendezVous.filter((r) => !r.annule && estAujourdhui(r.date, now)).sort((a, b) => a.date - b.date);
+  const coursDuJour = groupesDuJour(d, now);
   const seancesJour = d.seances.filter((s) => estAujourdhui(s.date, now));
   const enAttente = elevesPaiementEnAttente(d);
   const limite = d.reglages.seancesParPaiement;
@@ -22,7 +21,7 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
     { label: "Élèves", value: d.eleves.length, icon: GraduationCap, color: "var(--primary)", page: "eleves" as Page },
     { label: "Séances aujourd'hui", value: seancesJour.length, icon: ClipboardCheck, color: "#0288d1", page: "seances" as Page },
     { label: "Paiements en attente", value: enAttente.length, icon: Wallet, color: enAttente.length ? "var(--red)" : "var(--green)", page: "paiements" as Page },
-    { label: "Rendez-vous aujourd'hui", value: rdvJour.length, icon: CalendarDays, color: "var(--orange)", page: "agenda" as Page },
+    { label: "Groupes aujourd'hui", value: coursDuJour.length, icon: CalendarDays, color: "var(--orange)", page: "seances" as Page },
   ];
 
   return (
@@ -69,51 +68,29 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
         </div>
       )}
 
-      {d.groupes.length > 0 && (
-        <>
-          <div className="section-title"><h2>Séances de groupe</h2></div>
-          <div className="card list" style={{ padding: 6, gap: 0 }}>
-            {d.groupes.map((g) => (
-              <div key={g.id} className="item">
-                <div className="grow">
-                  <div className="bold ellipsis">{g.nom}</div>
-                  <div className="small muted">
-                    Chaque {g.jourSemaine.toLowerCase()} à {g.heureDebut}
-                    {g.prochaineSeance > now && <> · prochaine : {formatJourCourt(g.prochaineSeance)}</>}
-                  </div>
-                </div>
-                <button
-                  className="btn secondary small"
-                  onClick={() => {
-                    const r = actions.programmerProchaineSeance(g);
-                    toast(r.dejaPresent ? "Cette séance est déjà dans l'agenda" : `Séance ajoutée à l'agenda : ${formatJourCourt(r.date)}`);
-                  }}
-                >
-                  <CalendarPlus size={16} />Programmer
-                </button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
       <div className="section-title">
-        <h2>Rendez-vous du jour</h2>
-        <button className="btn ghost small" onClick={() => aller("agenda")}>Voir tout</button>
+        <h2>Cours d'aujourd'hui</h2>
+        <button className="btn ghost small" onClick={() => aller("groupes")}>Groupes</button>
       </div>
-      {rdvJour.length === 0 ? (
-        <div className="card pad muted small">Aucun rendez-vous prévu aujourd'hui.</div>
+      {coursDuJour.length === 0 ? (
+        <div className="card pad muted small">Aucun groupe n'a cours aujourd'hui.</div>
       ) : (
         <div className="list">
-          {rdvJour.map((r) => (
-            <div key={r.id} className="card item">
-              <span className="badge blue">{r.heure}</span>
-              <div className="grow">
-                <div className="bold ellipsis">{r.nomEleve}</div>
-                <div className="small muted">{r.lieu} · {formatDuree(r.dureeHeures)} h</div>
+          {coursDuJour.map((g) => {
+            const fait = appelDuJour(d, g.nom, now).length > 0;
+            return (
+              <div key={g.id} className="card item">
+                <span className="badge blue">{g.heureDebut}</span>
+                <div className="grow">
+                  <div className="bold ellipsis">{g.nom}</div>
+                  <div className="small muted">{g.heureDebut}–{g.heureFin} · {g.lieu}</div>
+                </div>
+                {fait
+                  ? <span className="badge green">✓ Appel fait</span>
+                  : <button className="btn small" onClick={() => aller("seances")}>Faire l'appel</button>}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

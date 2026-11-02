@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, CalendarDays, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
+import { BellRing, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
 import { CONFIG } from "./config";
-import { elevesPaiementEnAttente, useDonnees } from "./store";
+import { elevesPaiementEnAttente, groupesDuJour, useDonnees } from "./store";
+import { combinerDateHeure } from "./utils";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
 import { BoutonInstaller } from "./installation";
@@ -9,19 +10,17 @@ import { codeActif } from "./securite";
 import Accueil from "./pages/Accueil";
 import Eleves from "./pages/Eleves";
 import Groupes from "./pages/Groupes";
-import Agenda from "./pages/Agenda";
 import Seances from "./pages/Seances";
 import Paiements from "./pages/Paiements";
 import Notes from "./pages/Notes";
 import Parametres from "./pages/Parametres";
 
-export type Page = "accueil" | "eleves" | "groupes" | "agenda" | "seances" | "paiements" | "notes" | "parametres";
+export type Page = "accueil" | "eleves" | "groupes" | "seances" | "paiements" | "notes" | "parametres";
 
 const NAV: { id: Page; label: string; icon: typeof Home; mobile: boolean }[] = [
   { id: "accueil", label: "Accueil", icon: Home, mobile: true },
   { id: "eleves", label: "Élèves", icon: GraduationCap, mobile: true },
   { id: "groupes", label: "Groupes", icon: Users, mobile: true },
-  { id: "agenda", label: "Agenda", icon: CalendarDays, mobile: true },
   { id: "seances", label: "Séances", icon: ClipboardCheck, mobile: true },
   { id: "paiements", label: "Paiements", icon: Wallet, mobile: true },
   { id: "notes", label: "Notes", icon: NotebookPen, mobile: false },
@@ -65,9 +64,10 @@ export default function App() {
     const t = window.setInterval(() => setMaintenant(Date.now()), 30_000);
     return () => window.clearInterval(t);
   }, []);
-  const rappels = d.rendezVous
-    .filter((r) => !r.annule && r.date > maintenant && r.date - maintenant <= 60 * 60_000 && !ignores.includes(r.id))
-    .sort((a, b) => a.date - b.date);
+  // Rappels : cours des groupes (créneau hebdomadaire) qui commencent dans l'heure
+  const rappels = groupesDuJour(d, maintenant)
+    .map((g) => ({ id: g.id, nomEleve: g.nom, heure: g.heureDebut, lieu: g.lieu, date: combinerDateHeure(maintenant, g.heureDebut) }))
+    .filter((r) => r.date > maintenant && r.date - maintenant <= 60 * 60_000 && !ignores.includes(r.id));
   useEffect(() => {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     rappels.forEach((r) => {
@@ -121,7 +121,6 @@ export default function App() {
       case "accueil": return <Accueil aller={aller} ajouterEleve={() => { setAjoutEleve(true); aller("eleves"); }} />;
       case "eleves": return <Eleves ajoutInitial={ajoutEleve} finAjout={() => setAjoutEleve(false)} />;
       case "groupes": return <Groupes />;
-      case "agenda": return <Agenda />;
       case "seances": return <Seances />;
       case "paiements": return <Paiements />;
       case "notes": return <Notes />;
@@ -167,7 +166,7 @@ export default function App() {
           <div key={r.id} className="rappel" role="alert">
             <BellRing size={20} />
             <div className="grow small">
-              <b>Rappel :</b> cours avec <b>{r.nomEleve}</b> à {r.heure} (dans {Math.max(1, Math.round((r.date - maintenant) / 60000))} min) · {r.lieu}
+              <b>Rappel :</b> cours du groupe <b>{r.nomEleve}</b> à {r.heure} (dans {Math.max(1, Math.round((r.date - maintenant) / 60000))} min) · {r.lieu}
             </div>
             <button className="icon-btn" aria-label="Masquer le rappel" onClick={() => setIgnores([...ignores, r.id])}><X size={17} /></button>
           </div>

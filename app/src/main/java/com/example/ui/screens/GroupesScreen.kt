@@ -51,6 +51,7 @@ fun GroupesScreen(viewModel: ProfViewModel) {
     var ajoutDans by remember { mutableStateOf<GroupeEntity?>(null) }
     var detail by remember { mutableStateOf<GroupeEntity?>(null) }
     var aSupprimer by remember { mutableStateOf<GroupeEntity?>(null) }
+    var whatsappGroupe by remember { mutableStateOf<String?>(null) }
 
     fun elevesDe(g: GroupeEntity) = eleves.filter { memeNom(it.groupe, g.nom) }.sortedBy { it.nom + it.prenom }
     val nbSansGroupe = eleves.count { e -> groupes.none { memeNom(it.nom, e.groupe) } }
@@ -154,13 +155,13 @@ fun GroupesScreen(viewModel: ProfViewModel) {
                                 Text("Ajouter des élèves", maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             OutlinedButton(
-                                onClick = {
-                                    viewModel.programmerProchaineSeanceGroupe(g)
-                                    Toast.makeText(context, "Prochaine séance de ${g.nom} ajoutée à l'agenda", Toast.LENGTH_SHORT).show()
-                                },
+                                onClick = { whatsappGroupe = g.nom },
+                                enabled = membres.isNotEmpty(),
                                 contentPadding = PaddingValues(horizontal = 12.dp)
                             ) {
-                                Icon(Icons.Default.EventRepeat, contentDescription = "Programmer la prochaine séance", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("WhatsApp")
                             }
                         }
                     }
@@ -247,6 +248,17 @@ fun GroupesScreen(viewModel: ProfViewModel) {
                 Button(onClick = { detail = null; ajoutDans = g }) { Text("Ajouter des élèves") }
             },
             dismissButton = { TextButton(onClick = { detail = null }) { Text("Fermer") } }
+        )
+    }
+
+    whatsappGroupe?.let { nom ->
+        MessageWhatsAppDialog(
+            eleves = eleves,
+            groupes = groupes,
+            modele = settings.smsTemplateRappel,
+            groupeInitial = nom,
+            heureCours = { viewModel.heureProchainCours(it) },
+            onDismiss = { whatsappGroupe = null }
         )
     }
 

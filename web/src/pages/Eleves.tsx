@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { CalendarPlus, MessageCircle, MessageSquare, Pencil, Phone, Plus, Search, Share2, Trash2, UserPlus, Users } from "lucide-react";
+import { MessageCircle, MessageSquare, Pencil, Phone, Plus, Search, Share2, Trash2, UserPlus, Users } from "lucide-react";
 import { actions, heureProchainCours, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
-import { Confirmation, Field, Modal, Vide, toast } from "../components";
+import { Confirmation, DemandeCode, Field, Modal, Vide, toast } from "../components";
 import { AjoutEleves, FormGroupe } from "./Groupes";
-import { formatDate, formatJourCourt, initiales, lienSms, lienTel, lienWhatsapp, remplirModele, libelleCycle } from "../utils";
+import { formatDate, initiales, lienSms, lienTel, lienWhatsapp, remplirModele, libelleCycle } from "../utils";
 
 export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boolean; finAjout: () => void }) {
   const d = useDonnees();
@@ -109,15 +109,6 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
                   <UserPlus size={16} />Ajouter des élèves
                 </button>
               )}
-              {g.groupe && (
-                <button className="btn secondary small block" style={{ marginTop: 8 }}
-                  onClick={() => {
-                    const r = actions.programmerProchaineSeance(g.groupe!);
-                    toast(r.dejaPresent ? "Cette séance est déjà dans l'agenda" : `Séance ajoutée à l'agenda : ${formatJourCourt(r.date)}`);
-                  }}>
-                  <CalendarPlus size={16} />Programmer la prochaine séance
-                </button>
-              )}
             </div>
           ))}
         </div>
@@ -166,10 +157,11 @@ export default function Eleves({ ajoutInitial, finAjout }: { ajoutInitial: boole
       })()}
 
       {aSupprimer && (
-        <Confirmation
+        <DemandeCode
           titre={`Supprimer ${aSupprimer.prenom} ${aSupprimer.nom} ?`}
-          message="Cette action est définitive. L'historique des séances et des paiements est conservé."
-          onConfirm={() => { actions.supprimerEleve(aSupprimer.id); toast("Élève supprimé"); }}
+          message="Cette action est définitive. Saisissez le code d'accès pour confirmer. L'historique des séances et des paiements est conservé."
+          libelle="Supprimer"
+          onValide={() => { actions.supprimerEleve(aSupprimer.id); toast("Élève supprimé"); }}
           onClose={() => setASupprimer(null)}
         />
       )}

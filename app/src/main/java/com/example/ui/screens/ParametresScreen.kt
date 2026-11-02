@@ -316,8 +316,8 @@ fun ParametresScreen(viewModel: ProfViewModel) {
                         Icon(Icons.Default.GroupAdd, contentDescription = null, tint = StatusGreen, modifier = Modifier.size(28.dp))
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Créer / Envoyer Groupe WhatsApp", fontWeight = FontWeight.Bold)
-                            Text("Sélectionnez plusieurs élèves et préparez la liste dans WhatsApp", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Message WhatsApp groupé", fontWeight = FontWeight.Bold)
+                            Text("Choisissez un groupe, écrivez le message, puis envoyez-le à chaque élève", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Icon(Icons.Default.ArrowForwardIos, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -448,13 +448,13 @@ fun ParametresScreen(viewModel: ProfViewModel) {
 
     // Modal: WhatsApp Multi-Contact Group Helper
     if (showWhatsAppGroupDialog) {
-        WhatsAppGroupSelectorDialog(
+        val groupes by viewModel.allGroupes.collectAsState()
+        MessageWhatsAppDialog(
             eleves = eleves,
-            onDismiss = { showWhatsAppGroupDialog = false },
-            onConfirm = { selectedPhones ->
-                CommunicationHelper.creerGroupeWhatsappHelper(context, selectedPhones)
-                showWhatsAppGroupDialog = false
-            }
+            groupes = groupes,
+            modele = settings.smsTemplateRappel,
+            heureCours = { viewModel.heureProchainCours(it) },
+            onDismiss = { showWhatsAppGroupDialog = false }
         )
     }
 
@@ -551,67 +551,6 @@ private fun ApercuStyle(
             Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}
-
-@Composable
-fun WhatsAppGroupSelectorDialog(
-    eleves: List<EleveEntity>,
-    onDismiss: () -> Unit,
-    onConfirm: (List<String>) -> Unit
-) {
-    val selectedIds = remember { mutableStateListOf<Int>() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Sélectionner les élèves pour WhatsApp") },
-        text = {
-            Column {
-                Text(
-                    text = "Sélectionnez les élèves à inclure pour l'envoi de groupe.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyColumn(modifier = Modifier.height(250.dp)) {
-                    items(eleves) { eleve ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (selectedIds.contains(eleve.id)) selectedIds.remove(eleve.id)
-                                    else selectedIds.add(eleve.id)
-                                }
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selectedIds.contains(eleve.id),
-                                onCheckedChange = {
-                                    if (it) selectedIds.add(eleve.id) else selectedIds.remove(eleve.id)
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("${eleve.prenom} ${eleve.nom} (${eleve.telephone})", fontSize = 14.sp)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val phones = eleves.filter { selectedIds.contains(it.id) }.map { it.telephone }
-                    onConfirm(phones)
-                },
-                enabled = selectedIds.isNotEmpty()
-            ) {
-                Text("Ouvrir WhatsApp (${selectedIds.size})")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Annuler") }
-        }
-    )
 }
 
 @Composable

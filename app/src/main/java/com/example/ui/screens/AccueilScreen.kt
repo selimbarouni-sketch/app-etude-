@@ -35,7 +35,6 @@ import java.util.Locale
 fun AccueilScreen(
     viewModel: ProfViewModel,
     onNavigateToEleves: () -> Unit,
-    onNavigateToRendezVous: () -> Unit,
     onNavigateToSeances: () -> Unit,
     onNavigateToPaiements: () -> Unit,
     onAddEleveClick: () -> Unit
@@ -43,7 +42,9 @@ fun AccueilScreen(
     val eleves by viewModel.allEleves.collectAsState()
     val allGroupes by viewModel.allGroupes.collectAsState()
     val seancesToday by viewModel.seancesAujourdhui.collectAsState()
-    val rdvToday by viewModel.rendezVousAujourdhui.collectAsState()
+    // Groupes qui ont cours aujourd'hui (selon leur créneau hebdomadaire)
+    val jourAujourdhui = remember { SimpleDateFormat("EEEE", Locale.FRANCE).format(Date()) }
+    val coursDuJour = allGroupes.filter { it.jourSemaine.equals(jourAujourdhui, ignoreCase = true) }.sortedBy { it.heureDebut }
     val paiementsEnAttente by viewModel.elevesPaiementEnAttente.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -140,67 +141,13 @@ fun AccueilScreen(
                             onClick = onNavigateToPaiements
                         )
                         StatCard(
-                            title = "Rendez-vous aujourd'hui",
-                            value = "${rdvToday.size}",
+                            title = "Groupes aujourd'hui",
+                            value = "${coursDuJour.size}",
                             icon = Icons.Default.Event,
                             color = StatusOrange,
                             modifier = Modifier.weight(1f),
-                            onClick = onNavigateToRendezVous
+                            onClick = onNavigateToSeances
                         )
-                    }
-                }
-            }
-
-            // Section Rappel des Séances de Groupe & Auto-Programmation (Exigence #3)
-            if (allGroupes.isNotEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(24.dp))
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("Rappel Prochaines Séances de Groupe", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = PrimaryBlue)
-                                    Text("Programmation automatique & alarme de rappel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            allGroupes.forEach { groupe ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(groupe.nom, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text("Créneau : Chaque ${groupe.jourSemaine} à ${groupe.heureDebut}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Button(
-                                        onClick = {
-                                            viewModel.programmerProchaineSeanceGroupe(groupe)
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Prochaine séance de ${groupe.nom} ajoutée à l'agenda (rappel 1 h avant)",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(Icons.Default.EventRepeat, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Auto-Programmer", fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -251,47 +198,38 @@ fun AccueilScreen(
                 }
             }
 
-            // Today's Appointments Section
+            // Cours d'aujourd'hui (créneaux des groupes) avec l'état de l'appel
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Rendez-vous du jour",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    TextButton(onClick = onNavigateToRendezVous) {
-                        Text("Voir tout")
-                    }
-                }
+                Text("Cours d'aujourd'hui", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-
-            if (rdvToday.isEmpty()) {
+            if (coursDuJour.isEmpty()) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Aucun rendez-vous prévu aujourd'hui.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(
+                            "Aucun groupe n'a cours aujourd'hui.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp)
+                        )
                     }
                 }
             } else {
-                items(rdvToday) { rdv ->
-                    RdvItemRow(rdv = rdv)
+                items(coursDuJour, key = { it.id }) { g ->
+                    val appelFait = seancesToday.any { it.groupeCache.equals(g.nom, ignoreCase = true) }
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(g.heureDebut, fontWeight = FontWeight.Bold, color = PrimaryBlue)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(g.nom, fontWeight = FontWeight.SemiBold)
+                                Text("${g.heureDebut}–${g.heureFin} · ${g.lieu}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (appelFait) {
+                                Text("✓ Appel fait", color = StatusGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            } else {
+                                Button(onClick = onNavigateToSeances, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Faire l'appel") }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -399,51 +337,6 @@ fun StatCard(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-@Composable
-fun RdvItemRow(rdv: RendezVousEntity) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(PrimaryBlue.copy(alpha = 0.1f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = rdv.heure,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryBlue,
-                    fontSize = 13.sp
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = rdv.nomEleve,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = "${rdv.lieu} • Durée : ${com.example.util.formatDuree(rdv.dureeHeures)}h",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
     }
 }

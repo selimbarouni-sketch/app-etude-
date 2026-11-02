@@ -4,9 +4,10 @@ import { actions, useDonnees } from "../store";
 import type { Style, Theme } from "../types";
 import { Confirmation, Field, Modal, toast } from "../components";
 import { CONFIG } from "../config";
+import MessageWhatsApp from "./MessageWhatsApp";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
-import { formatDate, formatDuree, formatMontant, lireNombre, numeroInternational, telecharger, versCsv } from "../utils";
+import { formatDate, formatDuree, formatMontant, lireNombre, telecharger, versCsv } from "../utils";
 
 export default function Parametres() {
   const d = useDonnees();
@@ -63,7 +64,7 @@ export default function Parametres() {
         <section className="card pad stack">
           <div className="row bold"><Bell size={18} />Rappels des séances</div>
           <div className="small muted">
-            Un rappel s'affiche en haut de l'application 1 h avant chaque séance. Activez les notifications pour être aussi
+            Un rappel s'affiche en haut de l'application 1 h avant le cours de chaque groupe (selon son créneau hebdomadaire). Activez les notifications pour être aussi
             prévenu quand l'onglet est en arrière-plan (l'application doit rester ouverte dans le navigateur).
           </div>
           {"Notification" in window && (
@@ -108,7 +109,7 @@ export default function Parametres() {
           <div className="bold">Exports & rapports</div>
           <div className="fields-2">
             <button className="btn secondary" onClick={() => setPdf(true)} disabled={!d.eleves.length}><FileText size={18} />Rapport PDF élève</button>
-            <button className="btn secondary" onClick={() => setWhatsapp(true)} disabled={!d.eleves.length}><MessageCircle size={18} />Liste WhatsApp</button>
+            <button className="btn secondary" onClick={() => setWhatsapp(true)} disabled={!d.eleves.length}><MessageCircle size={18} />Message WhatsApp groupé</button>
             <button className="btn secondary" onClick={() => telecharger(`Eleves_${jour}.csv`, versCsv([
               ["Nom", "Prénom", "Téléphone", "Classe", "Groupe", "Inscription", "Séances cycle", "Total séances", "Observation"],
               ...d.eleves.map((e) => [e.nom, e.prenom, e.telephone, e.classe, e.groupe, formatDate(e.dateInscription), e.sessionsInCurrentCycle, e.totalSeancesRealisees, e.observation]),
@@ -149,10 +150,7 @@ export default function Parametres() {
         const { rapportEleve } = await import("../pdf");
         ids.forEach((id) => { const e = d.eleves.find((x) => x.id === id); if (e) rapportEleve(d, e); });
       }} unique />}
-      {whatsapp && <ChoixEleve titre="Préparer un groupe WhatsApp" action="Copier les numéros" onClose={() => setWhatsapp(false)} onChoix={(ids) => {
-        const nums = d.eleves.filter((e) => ids.includes(e.id)).map((e) => "+" + numeroInternational(e.telephone)).join(", ");
-        navigator.clipboard.writeText(nums).then(() => toast(`${ids.length} numéro(s) copié(s) — collez-les dans WhatsApp`), () => toast(nums));
-      }} />}
+      {whatsapp && <MessageWhatsApp onClose={() => setWhatsapp(false)} />}
       {importer && (
         <Confirmation titre="Restaurer cette sauvegarde ?" libelle="Restaurer"
           message="Les données actuelles de cet appareil seront remplacées par celles du fichier."
