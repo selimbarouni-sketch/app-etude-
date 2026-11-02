@@ -27,8 +27,9 @@ jobs:
       - name: Publier l'APK
         uses: actions/upload-artifact@v5
         with:
-          name: ProfSuivi-apk
+          name: ProfSuivi-apk-v1.${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
       - name: Tests unitaires
         run: ./gradlew --no-configuration-cache testDebugUnitTest

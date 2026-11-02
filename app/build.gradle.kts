@@ -14,14 +14,18 @@ android {
     applicationId = "com.aistudio.profsuivi.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Numéro de version qui augmente à chaque compilation GitHub : Android accepte ainsi
+    // d'installer chaque nouvel APK par-dessus le précédent (mise à jour sans perte de données).
+    val numeroCompilation = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+    versionCode = numeroCompilation
+    versionName = "1.$numeroCompilation"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Les fichiers de signature ne sont pas dans le dépôt (.gitignore) :
-  // on ne les utilise que s'ils existent, sinon la compilation échouait.
+  // debug.keystore est versionné : tous les APK sont signés avec la MÊME clé.
+  // Sans cela, chaque compilation avait une clé différente et Android refusait
+  // d'installer la nouvelle version par-dessus l'ancienne (« Application non installée »).
   val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
   val debugKeystore = file("${rootDir}/debug.keystore")
 
