@@ -36,6 +36,19 @@ class RendezVousAlarmReceiver : BroadcastReceiver() {
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
+
+        // Rappel hebdomadaire d'un groupe : on programme déjà celui de la semaine suivante
+        val groupeId = intent.getIntExtra("groupe_id", -1)
+        if (groupeId >= 0) {
+            val prochain = intent.getLongExtra("declenchement", 0L) + 7L * 24 * 60 * 60 * 1000
+            NotificationHelper.programmerRappelGroupe(
+                context, groupeId,
+                intent.getStringExtra("groupe_nom") ?: "",
+                intent.getStringExtra("groupe_heure") ?: "",
+                intent.getStringExtra("groupe_lieu") ?: "",
+                prochain
+            )
+        }
     }
 }
 
@@ -53,6 +66,58 @@ object NotificationHelper {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         alarmManager.cancel(pendingIntent)
         pendingIntent.cancel()
+    }
+
+    private const val BASE_ID_GROUPE = 1_000_000
+
+    /** Rappel 1 h avant le cours hebdomadaire d'un groupe (se reprogramme chaque semaine). */
+    fun programmerRappelGroupe(context: Context, groupeId: Int, nom: String, heure: String, lieu: String, declenchementMs: Long) {
+        if (declenchementMs <= System.currentTimeMillis()) return
+        val intent = Intent(context, RendezVousAlarmReceiver::class.java).apply {
+            putExtra("title", "Cours dans 1 h : $nom")
+            putExtra("message", "À $heure" + if (lieu.isNotBlank()) " · $lieu" else "")
+            putExtra("groupe_id", groupeId)
+            putExtra("groupe_nom", nom)
+            putExtra("groupe_heure", heure)
+            putExtra("groupe_lieu", lieu)
+            putExtra("declenchement", declenchementMs)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, BASE_ID_GROUPE + groupeId, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+        try {
+            if (canExact) alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, declenchementMs, pendingIntent)
+            else alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, declenchementMs, pendingIntent)
+        } catch (e: SecurityException) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, declenchementMs, pendingIntent)
+        }
+    }
+
+    fun annulerRappelGroupe(context: Context, groupeId: Int) = annulerNotificationRendezVous(context, BASE_ID_GROUPE + groupeId)
+
+    /** Notification immédiate : un élève a atteint le nombre de séances à payer. */
+    fun notifierPaiementAttendu(context: Context, eleveId: Int, nom: String, nbSeances: Int) {
+        createNotificationChannel(context)
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Paiement attendu : $nom")
+            .setContentText("$nom a atteint $nbSeances séances. Pensez à encaisser.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+        try {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(2_000_000 + eleveId, notif)
+        } catch (e: SecurityException) {
+            // autorisation de notification refusée
+        }
     }
 
     fun createNotificationChannel(context: Context) {

@@ -64,17 +64,6 @@ fun PaiementsScreen(viewModel: ProfViewModel) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        floatingActionButton = {
-            if (eleves.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = { choixEleve = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Encaisser") },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            }
-        }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Row(
@@ -312,7 +301,9 @@ fun PaiementDialog(
     val limite = settings.seancesParPaiement.coerceAtLeast(1)
     val prixSeance = settings.tarifForfait / limite
     // Par défaut on règle toutes les séances faites : le compteur repart de 0
-    val nbInitial = initial?.nbSeancesReglees ?: if (seancesDues > 0) seancesDues else limite
+    // Encaissement par forfait : au moins N séances (ex. 4), ou toutes les séances faites si plus
+    val minimum = if (initial != null) 1 else limite
+    val nbInitial = initial?.nbSeancesReglees ?: maxOf(limite, seancesDues)
     var nbSeances by remember { mutableIntStateOf(nbInitial) }
     var montantText by remember { mutableStateOf(formatMontant(initial?.montant ?: (prixSeance * nbInitial))) }
     var montantModifie by remember { mutableStateOf(initial != null) }
@@ -322,7 +313,7 @@ fun PaiementDialog(
     val modesList = listOf("Espèces", "Virement", "Carte", "Chèque")
 
     fun changerNb(n: Int) {
-        nbSeances = n.coerceIn(1, 99)
+        nbSeances = n.coerceIn(minimum, 99)
         if (!montantModifie) montantText = formatMontant(prixSeance * nbSeances)
     }
 
@@ -340,7 +331,7 @@ fun PaiementDialog(
                     FilledTonalIconButton(onClick = { changerNb(nbSeances + 1) }) { Icon(Icons.Default.Add, contentDescription = "Plus") }
                     Spacer(modifier = Modifier.width(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        (listOfNotNull(seancesDues.takeIf { it > 0 }) + listOf(limite, limite * 2)).distinct().forEach { n ->
+                        (listOfNotNull(seancesDues.takeIf { it >= limite }) + listOf(limite, limite * 2)).distinct().forEach { n ->
                             SuggestionChip(onClick = { changerNb(n) }, label = { Text("$n") })
                         }
                     }
@@ -507,11 +498,16 @@ private fun EncaisserParGroupe(
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = { onEncaisser(e) },
-                            colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
-                            contentPadding = PaddingValues(horizontal = 12.dp)
-                        ) { Text("Encaisser") }
+                        // Encaissement par forfait : à partir de N séances (ex. 4)
+                        if (dues >= limite) {
+                            Button(
+                                onClick = { onEncaisser(e) },
+                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) { Text("Encaisser") }
+                        } else {
+                            Text("Encaissement\nà $limite séances", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }

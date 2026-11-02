@@ -107,6 +107,20 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.ensureDefaultGroupesExist()
         }
+        // Rappels automatiques : 1 h avant le cours de chaque groupe (créneau hebdomadaire).
+        // Reprogrammés à chaque modification des groupes.
+        viewModelScope.launch {
+            var anciensIds = emptySet<Int>()
+            repository.allGroupes.collect { groupes ->
+                val ids = groupes.map { it.id }.toSet()
+                (anciensIds - ids).forEach { NotificationHelper.annulerRappelGroupe(getApplication(), it) }
+                groupes.forEach { g ->
+                    val debut = calculateNextWeeklySlotMs(g.jourSemaine, g.heureDebut, System.currentTimeMillis() + RAPPEL_AVANT_MS)
+                    NotificationHelper.programmerRappelGroupe(getApplication(), g.id, g.nom, g.heureDebut, g.lieu, debut - RAPPEL_AVANT_MS)
+                }
+                anciensIds = ids
+            }
+        }
     }
 
     // State flows
@@ -452,13 +466,34 @@ class ProfViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Enregistre l'appel, puis notifie le professeur pour chaque élève qui vient
+     * d'atteindre le nombre de séances à payer (ex. 4).
+     */
     fun enregistrerPresencesBatch(seances: List<SeanceEntity>) {
-        viewModelScope.launch { repository.addBatchSeances(seances) }
+        viewModelScope.launch {
+            val limite = settings.value.seancesParPaiement
+            val avant = allEleves.value.associate { it.id to it.sessionsInCurrentCycle }
+            repository.addBatchSeances(seances)
+            val comptees = seances.filter { it.statut == "P" || it.statut == "R" }.groupingBy { it.eleveId }.eachCount()
+            comptees.forEach { (id, n) ->
+                val a = avant[id] ?: return@forEach
+                if (a < limite && a + n >= limite) {
+                    val nom = seances.first { it.eleveId == id }.nomEleveCache
+                    NotificationHelper.notifierPaiementAttendu(getApplication(), id, nom, limite)
+                }
+            }
+        }
     }
 
-    fun deleteSeance(seance: SeanceEntity) {
-        viewModelScope.launch { repository.deleteSeance(seance) }
+    /** Correction le jour même (code exigé à l'écran) : supprime l'appel du groupe pour le refaire. */
+    fun annulerAppelDuJour(groupe: String) {
+        viewModelScope.launch {
+            seancesAujourdhui.value.filter { it.groupeCache.equals(groupe, ignoreCase = true) }.forEach { repository.deleteSeance(it) }
+        }
     }
+
+    fun verifierCode(code: String): Boolean = codeAcces.verifier(code)
 
     // ACTIONS: PAIEMENTS
     fun marquerPaiementRecu(

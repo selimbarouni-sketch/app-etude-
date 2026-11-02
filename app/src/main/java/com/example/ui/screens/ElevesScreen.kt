@@ -265,17 +265,6 @@ fun ElevesScreen(
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("Ajouter des élèves")
                                         }
-                                        OutlinedButton(
-                                            onClick = {
-                                                viewModel.programmerProchaineSeanceGroupe(matchingGroupEntity)
-                                                Toast.makeText(context, "Séance ${matchingGroupEntity.nom} programmée avec rappel !", Toast.LENGTH_LONG).show()
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Icon(Icons.Default.EventRepeat, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Programmer la prochaine séance hebdomadaire")
-                                        }
                                     }
                                 }
                             }
@@ -371,18 +360,18 @@ fun ElevesScreen(
         )
     }
 
+    // Suppression d'un élève : code d'accès obligatoire
     eleveASupprimer?.let { eleve ->
-        AlertDialog(
-            onDismissRequest = { eleveASupprimer = null },
-            title = { Text("Supprimer ${eleve.prenom} ${eleve.nom} ?") },
-            text = { Text("Cette action est définitive. L'historique des séances et paiements est conservé.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteEleve(eleve)
-                    eleveASupprimer = null
-                }) { Text("Supprimer", color = StatusRed) }
+        DemandeCodeDialog(
+            titre = "Supprimer ${eleve.prenom} ${eleve.nom} ?",
+            message = "Cette action est définitive. Saisissez le code d'accès pour confirmer. L'historique des séances et paiements est conservé.",
+            libelle = "Supprimer",
+            verifier = { viewModel.verifierCode(it) },
+            onValide = {
+                viewModel.deleteEleve(eleve)
+                Toast.makeText(context, "Élève supprimé", Toast.LENGTH_SHORT).show()
             },
-            dismissButton = { TextButton(onClick = { eleveASupprimer = null }) { Text("Annuler") } }
+            onDismiss = { eleveASupprimer = null }
         )
     }
 

@@ -15,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -59,213 +61,170 @@ fun SeancesScreen(viewModel: ProfViewModel) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("📋 Appel / Présences", fontWeight = FontWeight.SemiBold) }
+                    text = { Text("Appel du jour", fontWeight = FontWeight.SemiBold) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("📖 Historique (${seances.size})", fontWeight = FontWeight.SemiBold) }
+                    text = { Text("Historique (${seances.size})", fontWeight = FontWeight.SemiBold) }
                 )
             }
 
             when (selectedTab) {
-                0 -> QuickAppelSection(eleves = eleves, onSaveBatch = { batch -> viewModel.enregistrerPresencesBatch(batch) })
-                1 -> SeanceHistorySection(seances = seances, onDelete = { viewModel.deleteSeance(it) })
+                0 -> AppelDuJour(viewModel)
+                1 -> SeanceHistorySection(seances = seances)
             }
         }
     }
 }
 
+/**
+ * Appel du jour : un seul appel par groupe et par jour. Une fois validé, il est verrouillé.
+ * Correction possible uniquement le jour même, avec le code d'accès.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun QuickAppelSection(
-    eleves: List<EleveEntity>,
-    onSaveBatch: (List<SeanceEntity>) -> Unit
-) {
-    var heure by remember { mutableStateOf("16:00") }
-    var dureeHeures by remember { mutableStateOf("2") }
-    var selectedGroupFilter by remember { mutableStateOf("Tous") }
+fun AppelDuJour(viewModel: ProfViewModel) {
+    val context = LocalContext.current
+    val eleves by viewModel.allEleves.collectAsState()
+    val groupes by viewModel.allGroupes.collectAsState()
+    val seancesDuJour by viewModel.seancesAujourdhui.collectAsState()
+    val settings by viewModel.settings.collectAsState()
 
-    // Map of eleveId -> Statut ("P", "A", "R")
-    val attendanceMap = remember { mutableStateMapOf<Int, String>() }
-    // Initialize default to "P" for all students
-    LaunchedEffect(eleves) {
-        eleves.forEach { e ->
-            if (!attendanceMap.containsKey(e.id)) {
-                attendanceMap[e.id] = "P"
-            }
+    fun memeNom(a: String?, b: String) = a != null && a.trim().equals(b.trim(), ignoreCase = true)
+    val jour = remember { SimpleDateFormat("EEEE", Locale.FRANCE).format(Date()) }
+    val sansGroupe = eleves.filter { e -> groupes.none { memeNom(e.groupe, it.nom) } }
+    // "" = élèves sans groupe
+    val choix: List<Pair<String, String>> = groupes.map { it.nom to it.nom } + (if (sansGroupe.isNotEmpty()) listOf("" to "Sans groupe") else emptyList())
+    var groupe by remember {
+        mutableStateOf(groupes.firstOrNull { it.jourSemaine.equals(jour, ignoreCase = true) }?.nom ?: choix.firstOrNull()?.first ?: "")
+    }
+    val cfg = groupes.firstOrNull { it.nom == groupe }
+    var heure by remember(groupe) { mutableStateOf(cfg?.heureDebut ?: "16:00") }
+    var dureeHeures by remember { mutableStateOf(com.example.util.formatDuree(settings.dureeParDefautHeures)) }
+    val statuts = remember(groupe) { mutableStateMapOf<Int, String>() }
+    var corriger by remember { mutableStateOf(false) }
+
+    val elevesGroupe = (if (groupe.isEmpty()) sansGroupe else eleves.filter { memeNom(it.groupe, groupe) }).sortedBy { it.nom + it.prenom }
+    val dejaFait = seancesDuJour.filter { if (groupe.isEmpty()) it.groupeCache.isBlank() else memeNom(it.groupeCache, groupe) }
+    fun st(id: Int) = statuts[id] ?: "P"
+    val p = elevesGroupe.count { st(it.id) == "P" }
+    val a = elevesGroupe.count { st(it.id) == "A" }
+    val r = elevesGroupe.count { st(it.id) == "R" }
+
+    if (eleves.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            Text("Ajoutez d'abord des élèves.")
         }
+        return
     }
 
-    val availableGroups = remember(eleves) {
-        listOf("Tous") + eleves.mapNotNull { it.groupe }.filter { it.isNotBlank() }.distinct()
-    }
-
-    val filteredEleves = remember(eleves, selectedGroupFilter) {
-        if (selectedGroupFilter == "Tous") eleves
-        else eleves.filter { it.groupe == selectedGroupFilter }
-    }
-
-    var showSuccessToast by remember { mutableStateOf(false) }
-
-    // Correction : les statistiques comptaient tous les élèves, pas seulement le groupe affiché
-    val statutsAffiches = filteredEleves.map { attendanceMap[it.id] ?: "P" }
-    val pCount = statutsAffiches.count { it == "P" }
-    val aCount = statutsAffiches.count { it == "A" }
-    val rCount = statutsAffiches.count { it == "R" }
-    val totalCount = statutsAffiches.size
-    val presenceRate = if (totalCount > 0) ((pCount + rCount).toFloat() / totalCount * 100).toInt() else 0
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Attendance Live Summary Banner
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Session d'Aujourd'hui", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("Taux de présence : $presenceRate%", fontWeight = FontWeight.Bold, color = PrimaryBlue)
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Text("P (Présents) : $pCount", color = StatusGreen, fontWeight = FontWeight.Bold)
-                    Text("A (Absents) : $aCount", color = StatusRed, fontWeight = FontWeight.Bold)
-                    Text("R (Retards) : $rCount", color = StatusOrange, fontWeight = FontWeight.Bold)
+        item {
+            Text(SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE).format(Date()).replaceFirstChar { it.uppercase() }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                choix.forEach { (cle, libelle) ->
+                    val fait = seancesDuJour.any { if (cle.isEmpty()) it.groupeCache.isBlank() else memeNom(it.groupeCache, cle) }
+                    FilterChip(selected = groupe == cle, onClick = { groupe = cle }, label = { Text((if (fait) "✓ " else "") + libelle) })
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = heure,
-                onValueChange = { heure = it },
-                label = { Text("Heure") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = dureeHeures,
-                onValueChange = { dureeHeures = it },
-                label = { Text("Durée (heures)") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (availableGroups.size > 1) {
-            ScrollableTabRow(
-                selectedTabIndex = availableGroups.indexOf(selectedGroupFilter).coerceAtLeast(0),
-                edgePadding = 0.dp
-            ) {
-                availableGroups.forEach { group ->
-                    Tab(
-                        selected = selectedGroupFilter == group,
-                        onClick = { selectedGroupFilter = group; showSuccessToast = false },
-                        text = { Text(group) }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        if (eleves.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Aucun élève enregistré. Ajoutez d'abord des élèves dans l'onglet 'Élèves'.")
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredEleves, key = { it.id }) { eleve ->
-                    val currentStatut = attendanceMap[eleve.id] ?: "P"
-                    AttendanceStudentRow(
-                        eleve = eleve,
-                        statut = currentStatut,
-                        onStatutChanged = { newStatut ->
-                            attendanceMap[eleve.id] = newStatut
-                            showSuccessToast = false
+        if (dejaFait.isNotEmpty()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = StatusGreenBg)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = StatusGreen)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("Appel déjà validé aujourd'hui", fontWeight = FontWeight.Bold, color = StatusGreen)
+                            Text("Il est verrouillé : inutile de le refaire.", fontSize = 12.sp, color = StatusGreen)
                         }
-                    )
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = {
-                    val nowMs = System.currentTimeMillis()
-                    val duree = dureeHeures.replace(',', '.').trim().toFloatOrNull() ?: 2.0f
-                    val listToSave = filteredEleves.map { eleve ->
-                        SeanceEntity(
-                            eleveId = eleve.id,
-                            dateEpochMs = nowMs,
-                            heure = heure,
-                            dureeHeures = duree,
-                            statut = attendanceMap[eleve.id] ?: "P",
-                            nomEleveCache = "${eleve.prenom} ${eleve.nom}",
-                            groupeCache = eleve.groupe ?: ""
-                        )
+            items(dejaFait, key = { it.id }) { s ->
+                val (libelle, couleur) = when (s.statut) {
+                    "P" -> "Présent" to StatusGreen
+                    "A" -> "Absent" to StatusRed
+                    else -> "Retard" to StatusOrange
+                }
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(s.nomEleveCache, fontWeight = FontWeight.SemiBold)
+                            Text("${s.heure} · ${com.example.util.formatDuree(s.dureeHeures)} h", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(libelle, color = couleur, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
-                    onSaveBatch(listToSave)
-                    showSuccessToast = true
-                },
-                // Évite d'enregistrer deux fois le même appel (double appui)
-                enabled = !showSuccessToast && filteredEleves.isNotEmpty(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-            ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Valider et Enregistrer l'Appel (${filteredEleves.size})", fontWeight = FontWeight.Bold)
+                }
             }
-
-            AnimatedVisibility(visible = showSuccessToast) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = StatusGreenBg),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "✅ Appel enregistré avec succès !",
-                            color = StatusGreen,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Les compteurs de séances des élèves présents ont été mis à jour.",
-                            fontSize = 12.sp,
-                            color = StatusGreen
-                        )
+            item {
+                TextButton(onClick = { corriger = true }) { Text("Corriger l'appel d'aujourd'hui (code requis)") }
+            }
+        } else if (elevesGroupe.isEmpty()) {
+            item { Text("Aucun élève dans ce groupe.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Text("P : $p", color = StatusGreen, fontWeight = FontWeight.Bold)
+                            Text("A : $a", color = StatusRed, fontWeight = FontWeight.Bold)
+                            Text("R : $r", color = StatusOrange, fontWeight = FontWeight.Bold)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(value = heure, onValueChange = { heure = it }, label = { Text("Heure") }, singleLine = true, modifier = Modifier.weight(1f))
+                            OutlinedTextField(value = dureeHeures, onValueChange = { dureeHeures = it }, label = { Text("Durée (h)") }, singleLine = true, modifier = Modifier.weight(1f))
+                        }
                     }
+                }
+            }
+            items(elevesGroupe, key = { it.id }) { eleve ->
+                AttendanceStudentRow(eleve = eleve, statut = st(eleve.id), onStatutChanged = { statuts[eleve.id] = it })
+            }
+            item {
+                Button(
+                    onClick = {
+                        val maintenant = System.currentTimeMillis()
+                        val duree = dureeHeures.replace(',', '.').trim().toFloatOrNull() ?: settings.dureeParDefautHeures
+                        viewModel.enregistrerPresencesBatch(elevesGroupe.map { e ->
+                            SeanceEntity(
+                                eleveId = e.id,
+                                dateEpochMs = maintenant,
+                                heure = heure.trim(),
+                                dureeHeures = duree,
+                                statut = st(e.id),
+                                nomEleveCache = "${e.prenom} ${e.nom}",
+                                groupeCache = groupe
+                            )
+                        })
+                        Toast.makeText(context, "Appel enregistré et verrouillé", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Valider l'appel (${elevesGroupe.size})", fontWeight = FontWeight.Bold)
                 }
             }
         }
+    }
+
+    if (corriger) {
+        DemandeCodeDialog(
+            titre = "Corriger l'appel ?",
+            message = "L'appel de ce groupe pour aujourd'hui sera rouvert pour être refait. Les compteurs de séances seront rétablis.",
+            libelle = "Rouvrir l'appel",
+            verifier = { viewModel.verifierCode(it) },
+            onValide = { viewModel.annulerAppelDuJour(groupe) },
+            onDismiss = { corriger = false }
+        )
     }
 }
 
@@ -360,25 +319,8 @@ fun StatutToggleButton(
 }
 
 @Composable
-fun SeanceHistorySection(
-    seances: List<SeanceEntity>,
-    onDelete: (SeanceEntity) -> Unit
-) {
+fun SeanceHistorySection(seances: List<SeanceEntity>) {
     val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-    var seanceASupprimer by remember { mutableStateOf<SeanceEntity?>(null) }
-
-    seanceASupprimer?.let { seance ->
-        AlertDialog(
-            onDismissRequest = { seanceASupprimer = null },
-            title = { Text("Supprimer cette séance ?") },
-            text = { Text("${seance.nomEleveCache} — ${dateFormat.format(Date(seance.dateEpochMs))}. Le compteur de séances de l'élève sera corrigé.") },
-            confirmButton = {
-                TextButton(onClick = { onDelete(seance); seanceASupprimer = null }) { Text("Supprimer", color = StatusRed) }
-            },
-            dismissButton = { TextButton(onClick = { seanceASupprimer = null }) { Text("Annuler") } }
-        )
-    }
-
     if (seances.isEmpty()) {
         Box(
             modifier = Modifier
@@ -395,6 +337,9 @@ fun SeanceHistorySection(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item {
+                Text("🔒 Historique verrouillé : les séances passées ne peuvent plus être modifiées.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             items(seances, key = { it.id }) { seance ->
                 val (statusLabel, statusColor) = when (seance.statut) {
                     "P" -> Pair("Présent (P)", StatusGreen)
@@ -436,10 +381,6 @@ fun SeanceHistorySection(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
-                        }
-
-                        IconButton(onClick = { seanceASupprimer = seance }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.outline)
                         }
                     }
                 }
