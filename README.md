@@ -37,6 +37,13 @@ npm run dev
 onglet **Actions** du dépôt → dernier passage « Android – compilation de l'APK » →
 section **Artifacts** → `ProfSuivi-apk`.
 
+Installation sur le téléphone :
+1. Le fichier téléchargé depuis GitHub est un **.zip** : l'ouvrir et en extraire `app-debug.apk`.
+2. Ouvrir l'APK sur le téléphone et autoriser « Installer des applications inconnues » pour le navigateur / Fichiers.
+3. **Première fois seulement** : si une ancienne version de ProfSuivi est installée, faire une sauvegarde
+   (Paramètres → Sauvegarder la base) puis la **désinstaller** avant d'installer la nouvelle — les anciennes
+   versions étaient signées avec une clé différente. Les versions suivantes s'installeront par-dessus.
+
 Pour compiler soi-même : ouvrir le dossier dans Android Studio, ou lancer `./gradlew assembleDebug`.
 
 ## Personnaliser
