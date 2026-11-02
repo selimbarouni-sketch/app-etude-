@@ -2,6 +2,11 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -45,6 +50,22 @@ fun ParametresScreen(viewModel: ProfViewModel) {
     val codeActif by viewModel.codeActif.collectAsState()
     var dialogueCode by remember { mutableStateOf(false) }
     var dialogueDesactiver by remember { mutableStateOf(false) }
+    var dialogueRestaurer by remember { mutableStateOf(false) }
+
+    // Sauvegarde : l'utilisateur choisit où enregistrer le fichier (Téléchargements, Drive…)
+    val lanceurEnregistrer = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) {
+            val ok = DatabaseBackupHelper.enregistrerVers(context, uri)
+            Toast.makeText(context, if (ok) "Sauvegarde enregistrée" else "Erreur lors de la sauvegarde", Toast.LENGTH_LONG).show()
+        }
+    }
+    // Restauration : choix du fichier .sqlite, remplacement des données, redémarrage
+    val lanceurRestaurer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val erreur = DatabaseBackupHelper.restaurerDepuis(context, uri)
+            if (erreur != null) Toast.makeText(context, erreur, Toast.LENGTH_LONG).show()
+        }
+    }
     val eleves by viewModel.allEleves.collectAsState()
     val seances by viewModel.allSeances.collectAsState()
     val paiements by viewModel.allPaiements.collectAsState()
@@ -381,34 +402,68 @@ fun ParametresScreen(viewModel: ProfViewModel) {
 
             // Section 5: Sauvegarde SQLite
             item {
-                Text("Sauvegarde de la Base SQLite", fontWeight = FontWeight.Bold, color = PrimaryBlue, fontSize = 16.sp)
+                Text("Sauvegarde des données", fontWeight = FontWeight.Bold, color = PrimaryBlue, fontSize = 16.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Text(
+                            "Élèves, groupes, séances, paiements, notes et réglages. Faites une sauvegarde avant de désinstaller " +
+                                "ou de changer de téléphone, puis restaurez-la.",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Button(
                             onClick = {
-                                val file = DatabaseBackupHelper.exportDatabase(context)
-                                if (file != null) {
-                                    // Partager vers Drive / e-mail pour garder une copie hors du téléphone
-                                    ShareHelper.partagerFichier(context, file, "application/octet-stream", "Enregistrer la sauvegarde")
-                                } else {
-                                    Toast.makeText(context, "Erreur lors de la sauvegarde", Toast.LENGTH_SHORT).show()
-                                }
+                                val date = SimpleDateFormat("yyyy-MM-dd", Locale.FRANCE).format(Date())
+                                lanceurEnregistrer.launch("ProfSuivi_sauvegarde_$date.sqlite")
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = SecondaryBlue)
                         ) {
-                            Icon(Icons.Default.Backup, contentDescription = null)
+                            Icon(Icons.Default.Save, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sauvegarder la Base de Données")
+                            Text("Enregistrer une sauvegarde")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val file = DatabaseBackupHelper.exportDatabase(context)
+                                if (file != null) {
+                                    ShareHelper.partagerFichier(context, file, "application/octet-stream", "Envoyer la sauvegarde")
+                                } else {
+                                    Toast.makeText(context, "Erreur lors de la sauvegarde", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Envoyer (Drive, WhatsApp, e-mail…)")
+                        }
+                        OutlinedButton(
+                            onClick = { dialogueRestaurer = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restaurer une sauvegarde")
                         }
                     }
                 }
             }
         }
+    }
+
+    if (dialogueRestaurer) {
+        DemandeCodeDialog(
+            titre = "Restaurer une sauvegarde ?",
+            message = "Toutes les données actuelles de l'application seront remplacées par celles de la sauvegarde choisie, puis l'application redémarrera.",
+            libelle = "Choisir le fichier",
+            verifier = { viewModel.verifierCode(it) },
+            onValide = { lanceurRestaurer.launch(arrayOf("*/*")) },
+            onDismiss = { dialogueRestaurer = false }
+        )
     }
 
     if (dialogueCode) {
