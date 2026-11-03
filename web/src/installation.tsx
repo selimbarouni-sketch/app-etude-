@@ -16,6 +16,8 @@ const notifier = () => abonnes.forEach((f) => f());
 
 export const estInstallee = () =>
   window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+/** Navigateur intégré à une application (WhatsApp, Facebook, Instagram…) : l'installation y est impossible. */
+export const estNavigateurIntegre = () => /FBAN|FBAV|Instagram|Line\/|WhatsApp|Snapchat|; wv\)/i.test(navigator.userAgent);
 export const estIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 if (typeof window !== "undefined") {
@@ -76,8 +78,19 @@ export function BoutonInstaller({ className = "btn", libelle = "Installer l'appl
 
 function AideInstallation({ onClose }: { onClose: () => void }) {
   const ios = estIOS();
+  const integre = estNavigateurIntegre();
+  const adresse = window.location.origin;
   return (
     <Modal titre={`Installer ${CONFIG.nomApp}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>J'ai compris</button>}>
+      {integre && (
+        <div className="alert red small">
+          <div>
+            Vous êtes dans le navigateur intégré d'une application (WhatsApp, Facebook…) : l'installation y est impossible.
+            Ouvrez <b>{adresse}</b> dans <b>{ios ? "Safari" : "Chrome"}</b> (menu ⋮ → « Ouvrir dans le navigateur »).
+            <button className="btn secondary small" style={{ marginTop: 8 }} onClick={() => navigator.clipboard?.writeText(adresse)}>Copier l'adresse</button>
+          </div>
+        </div>
+      )}
       {ios ? (
         <ol className="etapes-installation">
           <li>Ouvrez cette page dans <b>Safari</b>.</li>
@@ -87,10 +100,10 @@ function AideInstallation({ onClose }: { onClose: () => void }) {
         </ol>
       ) : (
         <ol className="etapes-installation">
-          <li>Ouvrez cette page dans <b>Chrome</b> (Android) ou <b>Edge</b>.</li>
+          <li>Ouvrez <b>{adresse}</b> dans <b>Google Chrome</b> (pas dans WhatsApp ni dans un autre navigateur).</li>
           <li>Touchez le menu <b>⋮</b> en haut à droite.</li>
-          <li>Choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</li>
-          <li>Confirmez : l'icône {CONFIG.nomApp} apparaît avec vos autres applications.</li>
+          <li>Choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>, puis <b>Installer</b>.</li>
+          <li>Si l'option n'apparaît pas : rechargez la page, attendez quelques secondes et réessayez.</li>
         </ol>
       )}
       <div className="small muted">

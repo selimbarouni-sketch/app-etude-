@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BellRing, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
 import { CONFIG } from "./config";
-import { elevesPaiementEnAttente, groupesDuJour, useDonnees } from "./store";
+import { elevesPaiementEnAttente, groupesDuJour, relancesAFaire, useDonnees } from "./store";
 import { combinerDateHeure } from "./utils";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
@@ -56,6 +56,19 @@ export default function App() {
       document.removeEventListener("visibilitychange", visibilite);
     };
   }, []);
+
+  // Une fois par jour : notification au professeur s'il y a des paiements à encaisser / relancer
+  useEffect(() => {
+    if (verrouille) return;
+    const aRelancer = relancesAFaire(d);
+    const cle = `profsuivi-notif-paiements-${new Date().toDateString()}`;
+    try {
+      if (!aRelancer.length || localStorage.getItem(cle)) return;
+      localStorage.setItem(cle, "1");
+    } catch { return; }
+    const texte = `${aRelancer.length} élève(s) à relancer pour le paiement : ${aRelancer.map((e) => e.prenom).join(", ")}`;
+    if ("Notification" in window && Notification.permission === "granted") new Notification("Paiements à encaisser", { body: texte, icon: "/icon-192.png" });
+  }, [verrouille]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- Rappels des séances (dans l'heure qui vient, quand l'app est ouverte) ----------
   const [maintenant, setMaintenant] = useState(Date.now());

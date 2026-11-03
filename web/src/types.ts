@@ -12,6 +12,8 @@ export interface Eleve {
   dateInscription: number;
   sessionsInCurrentCycle: number;
   totalSeancesRealisees: number;
+  /** Date du dernier rappel de paiement envoyé (WhatsApp/SMS) */
+  dernierRappel?: number;
 }
 
 export interface Groupe {
@@ -59,6 +61,8 @@ export interface Paiement {
   modePaiement: string;
   nbSeancesReglees: number;
   observation: string;
+  /** Groupe de l'élève au moment du paiement (historique par groupe) */
+  groupe?: string;
   /** false = prévu mais pas encore encaissé (ex. chèque à déposer). Absent = encaissé. */
   encaisse?: boolean;
 }
@@ -89,6 +93,8 @@ export interface Reglages {
   style: Style;
   smsTemplateRappel: string;
   smsTemplatePaiement: string;
+  /** Relancer un élève qui n'a pas payé tous les N jours */
+  relanceJours: number;
 }
 
 export interface Donnees {

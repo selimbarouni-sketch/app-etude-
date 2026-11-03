@@ -75,7 +75,7 @@ export const initiales = (prenom: string, nom: string) => `${prenom.charAt(0)}${
 
 export function remplirModele(
   modele: string,
-  v: { prenom?: string; nom?: string; classe?: string; heure?: string; montant?: string; devise?: string }
+  v: { prenom?: string; nom?: string; classe?: string; heure?: string; montant?: string; devise?: string; seances?: string }
 ): string {
   return modele
     .replaceAll("{prenom}", v.prenom ?? "")
@@ -83,7 +83,8 @@ export function remplirModele(
     .replaceAll("{classe}", v.classe ?? "")
     .replaceAll("{heure}", v.heure ?? "")
     .replaceAll("{montant}", v.montant ?? "")
-    .replaceAll("{devise}", v.devise ?? "");
+    .replaceAll("{devise}", v.devise ?? "")
+    .replaceAll("{seances}", v.seances ?? "");
 }
 
 export function numeroInternational(tel: string): string {
@@ -135,3 +136,5 @@ export function versCsv(lignes: (string | number)[][]): string {
 
 /** "3/4" ou, si des séances ont été payées d'avance, "Crédit 2" */
 export const libelleCycle = (dues: number, limite: number) => (dues < 0 ? `Crédit ${-dues}` : `${dues}/${limite}`);
+
+export const heureDe = (ms: number) => new Date(ms).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });

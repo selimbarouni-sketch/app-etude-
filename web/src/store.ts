@@ -17,7 +17,8 @@ export const REGLAGES_DEFAUT: Reglages = {
   theme: "auto",
   style: "classique",
   smsTemplateRappel: "Bonjour {prenom}, petit rappel concernant votre cours de {classe} à {heure}. Merci !",
-  smsTemplatePaiement: "Bonjour {prenom}, rappel pour le paiement du forfait ({montant} {devise}). Merci !",
+  smsTemplatePaiement: "Bonjour {prenom}, vous avez effectué {seances} séances : merci de prévoir le paiement du forfait ({montant} {devise}). Merci !",
+  relanceJours: 3,
 };
 
 function donneesInitiales(): Donnees {
@@ -207,6 +208,7 @@ export const actions = {
           id: uid(),
           eleveId: p.eleve.id,
           nomEleve: `${p.eleve.prenom} ${p.eleve.nom}`,
+          groupe: p.eleve.groupe,
           date: Date.now(),
           montant: p.montant,
           modePaiement: p.modePaiement,
@@ -217,7 +219,7 @@ export const actions = {
         ...d.paiements,
       ],
       // On déduit les séances réglées ; si on paie d'avance, le compteur devient négatif (= crédit)
-      eleves: d.eleves.map((e) => (e.id === p.eleve.id ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - p.nbSeances } : e)),
+      eleves: d.eleves.map((e) => (e.id === p.eleve.id ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - p.nbSeances, dernierRappel: undefined } : e)),
     }));
   },
   /** Modifie un versement ; si le nombre de séances réglées change, le compteur de l'élève est corrigé. */
@@ -243,6 +245,11 @@ export const actions = {
         eleves: d.eleves.map((e) => (e.id === p.eleveId ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle + p.nbSeancesReglees } : e)),
       };
     });
+  },
+
+  /** Note qu'un rappel de paiement a été envoyé à l'élève (pour la prochaine relance). */
+  noterRappel(eleveId: string) {
+    maj((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === eleveId ? { ...e, dernierRappel: Date.now() } : e)) }));
   },
 
   // ---------- Notes ----------
@@ -306,4 +313,23 @@ export function appelDuJour(d: Donnees, groupe: string, jour: number): Seance[] 
 export function groupesDuJour(d: Donnees, jour = Date.now()): Groupe[] {
   const nom = jourSemaine(jour);
   return d.groupes.filter((g) => g.jourSemaine.toLowerCase() === nom.toLowerCase()).sort((a, b) => a.heureDebut.localeCompare(b.heureDebut));
+}
+
+/** Groupe d'un paiement : celui enregistré, sinon le groupe actuel de l'élève. */
+export function groupeDuPaiement(d: Donnees, p: Paiement): string {
+  if (p.groupe !== undefined) return p.groupe;
+  return d.eleves.find((e) => e.id === p.eleveId)?.groupe ?? "";
+}
+
+/** Élèves qui doivent payer et à relancer (jamais relancés, ou dernier rappel plus vieux que N jours). */
+export function relancesAFaire(d: Donnees, now = Date.now()): Eleve[] {
+  const delai = Math.max(1, d.reglages.relanceJours) * 86_400_000;
+  return elevesPaiementEnAttente(d).filter((e) => e.telephone.trim() && (!e.dernierRappel || now - e.dernierRappel >= delai));
+}
+
+/** Créneau d'aujourd'hui pour un groupe : ouverture de l'appel 30 min avant le début. */
+export function etatAppel(g: Groupe, now = Date.now()): { ouvert: boolean; ouverture: number; debut: number } {
+  const debut = (() => { const x = new Date(now); const [h, m] = g.heureDebut.split(":").map(Number); x.setHours(h || 0, m || 0, 0, 0); return x.getTime(); })();
+  const ouverture = debut - 30 * 60_000;
+  return { ouvert: now >= ouverture, ouverture, debut };
 }
