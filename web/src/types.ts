@@ -16,6 +16,18 @@ export interface Eleve {
   dernierRappel?: number;
 }
 
+/** Séance d'un groupe annulée ou reportée (par rapport à son créneau hebdomadaire). */
+export interface ExceptionSeance {
+  id: string;
+  /** Jour de la séance d'origine (minuit) */
+  date: number;
+  type: "annulee" | "reportee";
+  /** Pour un report : nouveau jour (minuit) et nouvelle heure */
+  nouvelleDate?: number;
+  nouvelleHeure?: string;
+  motif: string;
+}
+
 export interface Groupe {
   id: string;
   nom: string;
@@ -25,6 +37,7 @@ export interface Groupe {
   lieu: string;
   remarque: string;
   prochaineSeance: number;
+  exceptions?: ExceptionSeance[];
 }
 
 export interface RendezVous {

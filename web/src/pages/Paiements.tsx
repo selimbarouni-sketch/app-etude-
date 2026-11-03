@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BellRing, Hourglass, MessageCircle, MessageSquare, Pencil, Wallet } from "lucide-react";
+import { BellRing, Download, FileText, Hourglass, MessageCircle, MessageSquare, Share2, Wallet } from "lucide-react";
 import { actions, groupeDuPaiement, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
@@ -19,6 +19,7 @@ export default function Paiements() {
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
   const [aModifier, setAModifier] = useState<Paiement | null>(null);
+  const [recu, setRecu] = useState<Paiement | null>(null);
   const [onglet, setOnglet] = useState<"encaisser" | "historique">("encaisser");
 
   const groupes = useMemo(() => {
@@ -141,7 +142,7 @@ export default function Paiements() {
                     )}
                   </div>
                   <span className="money" style={{ color: estEncaisse(p) ? "var(--green)" : "var(--orange)" }}>+{formatMontant(p.montant)} {devise}</span>
-                  <Pencil size={15} className="muted" />
+                  <button className="icon-btn" title="Reçu PDF" aria-label="Reçu PDF" onClick={(ev) => { ev.stopPropagation(); setRecu(p); }}><FileText size={17} /></button>
                 </div>
               ))}
             </div>
@@ -149,7 +150,8 @@ export default function Paiements() {
         </>
       )}
 
-      {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} />}
+      {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} onCree={setRecu} />}
+      {recu && <EnvoiRecu paiementId={recu.id} onClose={() => setRecu(null)} />}
       {aModifier && (
         <FormPaiement
           eleve={d.eleves.find((e) => e.id === aModifier.eleveId) ?? null}
@@ -198,7 +200,7 @@ export function RelancesPaiement({ eleves }: { eleves: Eleve[] }) {
 }
 
 /** Nouveau versement, ou modification d'un versement existant. */
-function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve | null; paiement?: Paiement; onClose: () => void; onSupprimer?: () => void }) {
+function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve: Eleve | null; paiement?: Paiement; onClose: () => void; onSupprimer?: () => void; onCree?: (p: Paiement) => void }) {
   const d = useDonnees();
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
   const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
@@ -236,7 +238,8 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
             actions.modifierPaiement({ ...paiement, montant: m, modePaiement: mode, nbSeancesReglees: nb, observation: obs.trim(), encaisse });
             toast("Versement modifié");
           } else if (eleve) {
-            actions.enregistrerPaiement({ eleve, montant: m, modePaiement: mode, nbSeances: nb, observation: obs.trim(), encaisse });
+            const cree = actions.enregistrerPaiement({ eleve, montant: m, modePaiement: mode, nbSeances: nb, observation: obs.trim(), encaisse });
+            onCree?.(cree);
             toast("Paiement enregistré");
           }
           onClose();
@@ -277,3 +280,44 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer }: { eleve: Eleve 
   );
 }
 
+
+/** Après un encaissement : reçu PDF à envoyer à l'élève (WhatsApp…) ou à télécharger. */
+function EnvoiRecu({ paiementId, onClose }: { paiementId: string; onClose: () => void }) {
+  const d = useDonnees();
+  const p = d.paiements.find((x) => x.id === paiementId);
+  const eleve = p && d.eleves.find((e) => e.id === p.eleveId);
+  if (!p) return null;
+  const texte = `Bonjour ${eleve?.prenom ?? ""}, voici votre reçu de paiement : ${formatMontant(p.montant)} ${d.reglages.devise} pour ${p.nbSeancesReglees} séance(s), le ${formatDate(p.date)}. Merci !`;
+
+  const fabriquer = async () => {
+    const { recuPaiement } = await import("../pdf");
+    const { blob, nom } = recuPaiement(d, p);
+    return new File([blob], nom, { type: "application/pdf" });
+  };
+  const telecharger = async () => {
+    const f = await fabriquer();
+    const url = URL.createObjectURL(f);
+    const a = document.createElement("a"); a.href = url; a.download = f.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const partager = async () => {
+    const f = await fabriquer();
+    if (navigator.canShare?.({ files: [f] })) {
+      try { await navigator.share({ files: [f], text: texte, title: "Reçu de paiement" }); toast("Reçu partagé"); onClose(); } catch { /* partage annulé */ }
+    } else {
+      // Ordinateur : on télécharge le PDF puis on ouvre WhatsApp avec le message (joindre le fichier téléchargé)
+      await telecharger();
+      if (eleve?.telephone) window.open(lienWhatsapp(eleve.telephone, texte), "_blank");
+      toast("Reçu téléchargé : joignez-le dans la conversation WhatsApp");
+    }
+  };
+
+  return (
+    <Modal titre="Reçu de paiement" onClose={onClose} footer={<button className="btn secondary" onClick={onClose}>Fermer</button>}>
+      <div className="alert green"><div><b>{p.nomEleve}</b> · {formatMontant(p.montant)} {d.reglages.devise} · {p.nbSeancesReglees} séance(s) · {formatDate(p.date)}</div></div>
+      <div className="small muted">Envoyez le reçu PDF à l'élève : sur téléphone, choisissez WhatsApp dans la liste de partage.</div>
+      <button className="btn success" onClick={partager}><Share2 size={18} />Envoyer le reçu (WhatsApp…)</button>
+      <button className="btn secondary" onClick={telecharger}><Download size={18} />Télécharger le PDF</button>
+    </Modal>
+  );
+}

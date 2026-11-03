@@ -170,24 +170,29 @@ export default function Parametres() {
   );
 }
 
-function ChoixEleve({ titre, action, unique, onChoix, onClose }: { titre: string; action: string; unique?: boolean; onChoix: (ids: string[]) => void; onClose: () => void }) {
+/** Choix d'un élève : d'abord le groupe, puis l'élève (jamais de liste mélangée). */
+function ChoixEleve({ titre, action, onChoix, onClose }: { titre: string; action: string; unique?: boolean; onChoix: (ids: string[]) => void; onClose: () => void }) {
   const d = useDonnees();
-  const [sel, setSel] = useState<string[]>([]);
-  const basculer = (id: string) => setSel(unique ? [id] : sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
-  const eleves = [...d.eleves].sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr"));
+  const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const groupes = [
+    ...d.groupes.map((g) => ({ nom: g.nom, eleves: d.eleves.filter((e) => memeNom(e.groupe, g.nom)) })),
+    { nom: "Sans groupe", eleves: d.eleves.filter((e) => !d.groupes.some((g) => memeNom(g.nom, e.groupe))) },
+  ].filter((g) => g.eleves.length);
+  const [groupe, setGroupe] = useState(groupes[0]?.nom ?? "");
+  const [sel, setSel] = useState<string | null>(null);
+  const eleves = (groupes.find((g) => g.nom === groupe)?.eleves ?? []).sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr"));
   return (
     <Modal titre={titre} onClose={onClose}
       footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
-        <button className="btn" disabled={!sel.length} onClick={() => { onChoix(sel); onClose(); }}>{action}{!unique && sel.length ? ` (${sel.length})` : ""}</button></>}>
-      {!unique && (
-        <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => setSel(sel.length === eleves.length ? [] : eleves.map((e) => e.id))}>
-          {sel.length === eleves.length ? "Tout désélectionner" : "Tout sélectionner"}
-        </button>
-      )}
+        <button className="btn" disabled={!sel} onClick={() => { if (sel) onChoix([sel]); onClose(); }}>{action}</button></>}>
+      <Field label="1. Groupe">
+        <div className="chips">{groupes.map((g) => <button key={g.nom} type="button" className={`chip ${groupe === g.nom ? "on" : ""}`} onClick={() => { setGroupe(g.nom); setSel(null); }}>{g.nom}</button>)}</div>
+      </Field>
+      <div className="small bold muted">2. Élève</div>
       {eleves.map((e) => (
         <label key={e.id} className="row" style={{ cursor: "pointer", padding: "4px 0" }}>
-          <input type={unique ? "radio" : "checkbox"} checked={sel.includes(e.id)} onChange={() => basculer(e.id)} />
-          <span className="grow">{e.prenom} {e.nom} <span className="muted small">· {e.classe}{e.groupe && ` · ${e.groupe}`}</span></span>
+          <input type="radio" checked={sel === e.id} onChange={() => setSel(e.id)} />
+          <span className="grow">{e.prenom} {e.nom} <span className="muted small">· {e.classe}</span></span>
         </label>
       ))}
     </Modal>

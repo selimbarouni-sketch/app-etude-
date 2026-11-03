@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock } from "lucide-react";
-import { actions, appelDuJour, etatAppel, groupesDuJour, useDonnees } from "../store";
+import { actions, appelDuJour, etatAppel, prochainesSeances, seancesDuJour, useDonnees } from "../store";
 import type { Statut } from "../types";
 import { DemandeCode, Vide, toast } from "../components";
 import { notifierPaiementsAttendus } from "../notifier";
-import { dureeEntre, formatDate, formatDateLongue, formatDuree, formatJourCourt, heureDe, prochainCreneau } from "../utils";
+import { dureeEntre, formatDate, formatDateLongue, formatDuree, formatJourCourt, heureDe } from "../utils";
 
 const LIBELLES: Record<Statut, string> = { P: "Présent", A: "Absent", R: "Retard" };
 const COULEURS: Record<Statut, string> = { P: "green", A: "red", R: "orange" };
@@ -33,13 +33,15 @@ export default function Seances() {
 function Appel() {
   const d = useDonnees();
   const [maintenant] = useState(Date.now());
-  const duJour = groupesDuJour(d, maintenant);
+  const duJour = seancesDuJour(d, maintenant);
   const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   const [choix, setChoix] = useState<string | null>(() => {
-    const ouverts = duJour.filter((g) => etatAppel(g, maintenant).ouvert && !appelDuJour(d, g.nom, maintenant).length);
-    return (ouverts[0] ?? duJour[0])?.id ?? null;
+    const actives = duJour.filter((s) => !s.annulee);
+    const ouverts = actives.filter((s) => etatAppel(s, maintenant).ouvert && !appelDuJour(d, s.groupe.nom, maintenant).length);
+    return (ouverts[0] ?? actives[0])?.groupe.id ?? null;
   });
-  const groupe = duJour.find((g) => g.id === choix) ?? null;
+  const seance = duJour.find((s) => s.groupe.id === choix && !s.annulee) ?? null;
+  const groupe = seance?.groupe ?? null;
   const [statuts, setStatuts] = useState<Record<string, Statut>>({});
   const [corriger, setCorriger] = useState(false);
 
@@ -54,15 +56,15 @@ function Appel() {
   );
 
   if (duJour.length === 0) {
-    const prochains = d.groupes.map((g) => ({ g, date: prochainCreneau(g.jourSemaine, g.heureDebut, maintenant) })).sort((a, b) => a.date - b.date).slice(0, 3);
+    const prochaines = prochainesSeances(d, maintenant, undefined, 3);
     return (
       <div className="stack">
         {entete}
         <Vide icone={<ClipboardList size={48} />} texte="Aucune séance programmée aujourd'hui : pas d'appel à faire." />
-        {prochains.length > 0 && (
+        {prochaines.length > 0 && (
           <div className="card pad small">
             <div className="bold" style={{ marginBottom: 6 }}>Prochaines séances</div>
-            {prochains.map(({ g, date }) => <div key={g.id}>{formatJourCourt(date)} à {g.heureDebut} — {g.nom}</div>)}
+            {prochaines.map((p) => <div key={p.groupe.id + p.debut}>{formatJourCourt(p.debut)} à {p.heureDebut} — {p.groupe.nom}{p.reportDe ? " (reportée)" : ""}</div>)}
           </div>
         )}
       </div>
@@ -71,7 +73,7 @@ function Appel() {
 
   const eleves = groupe ? d.eleves.filter((e) => memeNom(e.groupe, groupe.nom)).sort((a, b) => (a.nom + a.prenom).localeCompare(b.nom + b.prenom, "fr")) : [];
   const dejaFait = groupe ? appelDuJour(d, groupe.nom, maintenant) : [];
-  const etat = groupe ? etatAppel(groupe, maintenant) : null;
+  const etat = seance ? etatAppel(seance, maintenant) : null;
   const st = (id: string): Statut => statuts[id] ?? "P";
   const nb = (s: Statut) => eleves.filter((e) => st(e.id) === s).length;
 
@@ -80,18 +82,25 @@ function Appel() {
       {entete}
       <div className="small bold muted">Séances programmées aujourd'hui</div>
       <div className="list">
-        {duJour.map((g) => {
-          const fait = appelDuJour(d, g.nom, maintenant).length > 0;
-          const e = etatAppel(g, maintenant);
+        {duJour.map((s) => {
+          const fait = appelDuJour(d, s.groupe.nom, maintenant).length > 0;
+          const e = etatAppel(s, maintenant);
           return (
-            <button key={g.id} className={`card item clickable ${choix === g.id ? "selection" : ""}`} style={{ textAlign: "left", width: "100%" }}
-              onClick={() => { setChoix(g.id); setStatuts({}); }}>
-              <span className="badge blue">{g.heureDebut}</span>
+            <button key={s.groupe.id} disabled={!!s.annulee}
+              className={`card item ${s.annulee ? "" : "clickable"} ${choix === s.groupe.id && !s.annulee ? "selection" : ""}`}
+              style={{ textAlign: "left", width: "100%", ...(s.annulee ? { opacity: 0.6 } : {}) }}
+              onClick={() => { setChoix(s.groupe.id); setStatuts({}); }}>
+              <span className="badge blue">{s.heureDebut}</span>
               <div className="grow">
-                <div className="bold ellipsis">{g.nom}</div>
-                <div className="tiny muted">{g.heureDebut}–{g.heureFin} · {g.lieu}</div>
+                <div className="bold ellipsis" style={s.annulee ? { textDecoration: "line-through" } : undefined}>{s.groupe.nom}</div>
+                <div className="tiny muted">
+                  {s.heureDebut}–{s.heureFin} · {s.groupe.lieu}
+                  {s.reportDe ? ` · reportée du ${formatJourCourt(s.reportDe)}` : ""}
+                  {s.annulee?.motif ? ` · ${s.annulee.motif}` : ""}
+                </div>
               </div>
-              {fait ? <span className="badge green">✓ Appel fait</span>
+              {s.annulee ? <span className="badge red">Annulée</span>
+                : fait ? <span className="badge green">✓ Appel fait</span>
                 : e.ouvert ? <span className="badge orange">Appel à faire</span>
                 : <span className="badge">Ouvre à {heureDe(e.ouverture)}</span>}
             </button>
@@ -99,7 +108,7 @@ function Appel() {
         })}
       </div>
 
-      {groupe && etat && (
+      {groupe && seance && etat && (
         dejaFait.length > 0 ? (
           <>
             <div className="alert green">
@@ -131,14 +140,14 @@ function Appel() {
         ) : !etat.ouvert ? (
           <div className="alert blue">
             <Clock size={20} />
-            <div>L'appel de <b>{groupe.nom}</b> s'ouvrira à <b>{heureDe(etat.ouverture)}</b> (30 min avant la séance de {groupe.heureDebut}).</div>
+            <div>L'appel de <b>{groupe.nom}</b> s'ouvrira à <b>{heureDe(etat.ouverture)}</b> (30 min avant la séance de {seance.heureDebut}).</div>
           </div>
         ) : eleves.length === 0 ? (
           <div className="card pad muted small">Aucun élève dans ce groupe. Ajoutez des élèves depuis l'écran Groupes.</div>
         ) : (
           <>
             <div className="card pad row wrap">
-              <div className="grow bold">{groupe.nom} · {groupe.heureDebut}–{groupe.heureFin}</div>
+              <div className="grow bold">{groupe.nom} · {seance.heureDebut}–{seance.heureFin}</div>
               <span className="badge green">P : {nb("P")}</span>
               <span className="badge red">A : {nb("A")}</span>
               <span className="badge orange">R : {nb("R")}</span>
@@ -161,8 +170,8 @@ function Appel() {
             </div>
             <button className="btn block" style={{ padding: 14 }} onClick={() => {
               const atteints = actions.enregistrerAppel(eleves.map((e) => ({
-                eleveId: e.id, date: etat.debut, heure: groupe.heureDebut,
-                dureeHeures: dureeEntre(groupe.heureDebut, groupe.heureFin) ?? d.reglages.dureeParDefautHeures,
+                eleveId: e.id, date: seance.debut, heure: seance.heureDebut,
+                dureeHeures: dureeEntre(seance.heureDebut, seance.heureFin) ?? d.reglages.dureeParDefautHeures,
                 statut: st(e.id), commentaire: "", nomEleve: `${e.prenom} ${e.nom}`, groupe: groupe.nom,
               })));
               setStatuts({});

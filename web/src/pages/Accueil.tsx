@@ -1,16 +1,16 @@
-import { AlertTriangle, CalendarDays, ClipboardCheck, GraduationCap, UserPlus, Wallet } from "lucide-react";
+import { AlertTriangle, CalendarDays, ClipboardCheck, GraduationCap, UserPlus, Users, Wallet } from "lucide-react";
 import type { Page } from "../App";
-import { appelDuJour, elevesPaiementEnAttente, groupesDuJour, relancesAFaire, useDonnees } from "../store";
+import { appelDuJour, elevesPaiementEnAttente, prochainesSeances, relancesAFaire, seancesDuJour, useDonnees } from "../store";
 import { RelancesPaiement } from "./Paiements";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { CONFIG } from "../config";
 import { useState } from "react";
-import { estAujourdhui, formatDateLongue, initiales, libelleCycle } from "../utils";
+import { estAujourdhui, formatDateLongue, formatJourCourt } from "../utils";
 
-export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => void; ajouterEleve: () => void }) {
+export default function Accueil({ aller, ajouterEleve, ouvrirGroupe }: { aller: (p: Page) => void; ajouterEleve: () => void; ouvrirGroupe: (id: string) => void }) {
   const d = useDonnees();
   const now = Date.now();
-  const coursDuJour = groupesDuJour(d, now);
+  const coursDuJour = seancesDuJour(d, now);
   const seancesJour = d.seances.filter((s) => estAujourdhui(s.date, now));
   const enAttente = elevesPaiementEnAttente(d);
   const limite = d.reglages.seancesParPaiement;
@@ -19,10 +19,10 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
   });
 
   const stats = [
-    { label: "Élèves", value: d.eleves.length, icon: GraduationCap, color: "var(--primary)", page: "eleves" as Page },
+    { label: "Élèves", value: d.eleves.length, icon: GraduationCap, color: "var(--primary)", page: "groupes" as Page },
     { label: "Séances aujourd'hui", value: seancesJour.length, icon: ClipboardCheck, color: "#0288d1", page: "seances" as Page },
     { label: "Paiements en attente", value: enAttente.length, icon: Wallet, color: enAttente.length ? "var(--red)" : "var(--green)", page: "paiements" as Page },
-    { label: "Groupes aujourd'hui", value: coursDuJour.length, icon: CalendarDays, color: "var(--orange)", page: "seances" as Page },
+    { label: "Groupes aujourd'hui", value: coursDuJour.filter((c) => !c.annulee).length, icon: CalendarDays, color: "var(--orange)", page: "seances" as Page },
   ];
 
   return (
@@ -79,17 +79,17 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
         <div className="card pad muted small">Aucun groupe n'a cours aujourd'hui.</div>
       ) : (
         <div className="list">
-          {coursDuJour.map((g) => {
-            const fait = appelDuJour(d, g.nom, now).length > 0;
+          {coursDuJour.map((c) => {
+            const fait = appelDuJour(d, c.groupe.nom, now).length > 0;
             return (
-              <div key={g.id} className="card item">
-                <span className="badge blue">{g.heureDebut}</span>
+              <div key={c.groupe.id} className="card item" style={c.annulee ? { opacity: 0.6 } : undefined}>
+                <span className="badge blue">{c.heureDebut}</span>
                 <div className="grow">
-                  <div className="bold ellipsis">{g.nom}</div>
-                  <div className="small muted">{g.heureDebut}–{g.heureFin} · {g.lieu}</div>
+                  <div className="bold ellipsis" style={c.annulee ? { textDecoration: "line-through" } : undefined}>{c.groupe.nom}</div>
+                  <div className="small muted">{c.heureDebut}–{c.heureFin} · {c.groupe.lieu}{c.reportDe ? " · séance reportée" : ""}</div>
                 </div>
-                {fait
-                  ? <span className="badge green">✓ Appel fait</span>
+                {c.annulee ? <span className="badge red">Annulée</span>
+                  : fait ? <span className="badge green">✓ Appel fait</span>
                   : <button className="btn small" onClick={() => aller("seances")}>Faire l'appel</button>}
               </div>
             );
@@ -98,23 +98,31 @@ export default function Accueil({ aller, ajouterEleve }: { aller: (p: Page) => v
       )}
 
       <div className="section-title">
-        <h2>Mes élèves ({d.eleves.length})</h2>
-        <button className="btn ghost small" onClick={() => aller("eleves")}>Voir tout</button>
+        <h2>Mes groupes ({d.groupes.length})</h2>
+        <button className="btn ghost small" onClick={() => aller("groupes")}>Voir tout</button>
       </div>
-      {d.eleves.length === 0 ? (
-        <div className="card pad muted small">Aucun élève pour le moment. Cliquez sur « Ajouter un élève » pour commencer.</div>
+      {d.groupes.length === 0 ? (
+        <div className="card pad muted small">Aucun groupe pour le moment. Créez un groupe puis ajoutez-y vos élèves.</div>
       ) : (
         <div className="list">
-          {[...d.eleves].sort((a, b) => b.sessionsInCurrentCycle - a.sessionsInCurrentCycle).slice(0, 5).map((e) => (
-            <div key={e.id} className="card item clickable" onClick={() => aller("eleves")}>
-              <div className="avatar">{initiales(e.prenom, e.nom)}</div>
-              <div className="grow">
-                <div className="bold ellipsis">{e.prenom} {e.nom}</div>
-                <div className="small muted ellipsis">{e.classe} · {e.groupe || "Sans groupe"}</div>
+          {d.groupes.map((g) => {
+            const eleves = d.eleves.filter((e) => e.groupe.trim().toLowerCase() === g.nom.trim().toLowerCase());
+            const aPayer = eleves.filter((e) => e.sessionsInCurrentCycle >= limite).length;
+            const prochaine = prochainesSeances(d, now, g.id, 1)[0];
+            return (
+              <div key={g.id} className="card item clickable" onClick={() => ouvrirGroupe(g.id)}>
+                <div className="avatar"><Users size={18} /></div>
+                <div className="grow">
+                  <div className="bold ellipsis">{g.nom}</div>
+                  <div className="small muted ellipsis">
+                    {eleves.length} élève{eleves.length > 1 ? "s" : ""}
+                    {prochaine && <> · prochaine séance {formatJourCourt(prochaine.debut)} à {prochaine.heureDebut}</>}
+                  </div>
+                </div>
+                {aPayer > 0 && <span className="badge red">{aPayer} à payer</span>}
               </div>
-              <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>
