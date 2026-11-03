@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { CONFIG } from "./config";
-import type { Donnees, Eleve, Groupe, Note, Paiement, Reglages, Seance, Statut } from "./types";
+import type { Donnees, Eleve, ExceptionSeance, Groupe, Note, Paiement, Reglages, Seance, Statut } from "./types";
 import { debutDuJour, jourSemaine, uid } from "./utils";
 
 /**
@@ -64,8 +64,14 @@ let etat: Donnees = charger();
 const abonnes = new Set<() => void>();
 export let erreurSauvegarde = false;
 
-function maj(f: (d: Donnees) => Donnees) {
-  etat = f(etat);
+/** Appelés à chaque modification faite sur cet appareil (pour la synchronisation en ligne). */
+const surModificationLocale = new Set<() => void>();
+export const ecouterModifications = (cb: () => void) => {
+  surModificationLocale.add(cb);
+  return () => surModificationLocale.delete(cb);
+};
+
+function enregistrer() {
   try {
     localStorage.setItem(CLE, JSON.stringify(etat));
     erreurSauvegarde = false;
@@ -73,6 +79,18 @@ function maj(f: (d: Donnees) => Donnees) {
     erreurSauvegarde = true;
   }
   abonnes.forEach((cb) => cb());
+}
+
+function maj(f: (d: Donnees) => Donnees) {
+  etat = f(etat);
+  enregistrer();
+  surModificationLocale.forEach((cb) => cb());
+}
+
+/** Remplace les données par celles venues du serveur (sans déclencher de nouvel envoi). */
+export function remplacerDepuisServeur(d: unknown) {
+  etat = normaliser(d as Partial<Donnees>);
+  enregistrer();
 }
 
 // Synchronise plusieurs onglets ouverts
@@ -142,6 +160,22 @@ export const actions = {
       };
     });
   },
+  /** Annule ou reporte une séance d'un groupe. */
+  ajouterException(groupeId: string, e: Omit<ExceptionSeance, "id">) {
+    maj((d) => ({
+      ...d,
+      groupes: d.groupes.map((g) => g.id === groupeId
+        ? { ...g, exceptions: [...(g.exceptions ?? []).filter((x) => x.date !== e.date), { ...e, id: uid() }] }
+        : g),
+    }));
+  },
+  /** Rétablit la séance (supprime l'annulation / le report). */
+  supprimerException(groupeId: string, exceptionId: string) {
+    maj((d) => ({
+      ...d,
+      groupes: d.groupes.map((g) => g.id === groupeId ? { ...g, exceptions: (g.exceptions ?? []).filter((x) => x.id !== exceptionId) } : g),
+    }));
+  },
   /** Place des élèves existants dans un groupe (un élève n'appartient qu'à un groupe). */
   affecterEleves(nomGroupe: string, ids: string[]) {
     const set = new Set(ids);
@@ -200,12 +234,13 @@ export const actions = {
     });
   },
   // ---------- Paiements ----------
-  enregistrerPaiement(p: { eleve: Eleve; montant: number; modePaiement: string; nbSeances: number; observation: string; encaisse?: boolean }) {
+  enregistrerPaiement(p: { eleve: Eleve; montant: number; modePaiement: string; nbSeances: number; observation: string; encaisse?: boolean }): Paiement {
+    const id = uid();
     maj((d) => ({
       ...d,
       paiements: [
         {
-          id: uid(),
+          id,
           eleveId: p.eleve.id,
           nomEleve: `${p.eleve.prenom} ${p.eleve.nom}`,
           groupe: p.eleve.groupe,
@@ -221,6 +256,7 @@ export const actions = {
       // On déduit les séances réglées ; si on paie d'avance, le compteur devient négatif (= crédit)
       eleves: d.eleves.map((e) => (e.id === p.eleve.id ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle - p.nbSeances, dernierRappel: undefined } : e)),
     }));
+    return etat.paiements.find((x) => x.id === id)!;
   },
   /** Modifie un versement ; si le nombre de séances réglées change, le compteur de l'élève est corrigé. */
   modifierPaiement(p: Paiement) {
@@ -300,7 +336,8 @@ export function elevesPaiementEnAttente(d: Donnees): Eleve[] {
 
 export function heureProchainCours(d: Donnees, e: Eleve): string {
   const g = d.groupes.find((x) => x.nom.toLowerCase() === e.groupe.toLowerCase());
-  return g?.heureDebut ?? "l'heure prévue";
+  if (!g) return "l'heure prévue";
+  return prochainesSeances(d, Date.now(), g.id, 1)[0]?.heureDebut ?? g.heureDebut;
 }
 
 /** Séances enregistrées pour un groupe un jour donné (= l'appel de ce jour). */
@@ -309,10 +346,82 @@ export function appelDuJour(d: Donnees, groupe: string, jour: number): Seance[] 
   return d.seances.filter((s) => s.groupe.toLowerCase() === groupe.toLowerCase() && s.date >= debut && s.date < debut + 86_400_000);
 }
 
-/** Groupes qui ont cours ce jour-là (d'après leur créneau hebdomadaire). */
+/** Une séance d'un groupe un jour donné (créneau hebdomadaire, report ou annulation pris en compte). */
+export interface SeanceProgrammee {
+  groupe: Groupe;
+  jour: number; // minuit
+  heureDebut: string;
+  heureFin: string;
+  debut: number; // instant de début
+  annulee?: ExceptionSeance;
+  reportDe?: number; // jour d'origine si la séance a été reportée à ce jour
+}
+
+const ajouterMinutes = (heure: string, minutes: number) => {
+  const [h, m] = heure.split(":").map(Number);
+  const t = Math.max(0, Math.min(24 * 60 - 1, (h || 0) * 60 + (m || 0) + minutes));
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+};
+const dureeMinutes = (g: Groupe) => {
+  const [h1, m1] = g.heureDebut.split(":").map(Number);
+  const [h2, m2] = g.heureFin.split(":").map(Number);
+  const d = (h2 * 60 + m2) - (h1 * 60 + m1);
+  return d > 0 ? d : 120;
+};
+const instant = (jour: number, heure: string) => {
+  const [h, m] = heure.split(":").map(Number);
+  const x = new Date(jour); x.setHours(h || 0, m || 0, 0, 0);
+  return x.getTime();
+};
+
+/** Séances programmées un jour donné, triées par heure (les annulées sont incluses, marquées). */
+export function seancesDuJour(d: Donnees, jour = Date.now()): SeanceProgrammee[] {
+  const j = debutDuJour(jour);
+  const nom = jourSemaine(j).toLowerCase();
+  const res: SeanceProgrammee[] = [];
+  for (const g of d.groupes) {
+    const exc = (g.exceptions ?? []).find((x) => x.date === j);
+    if (g.jourSemaine.toLowerCase() === nom) {
+      if (!exc) res.push({ groupe: g, jour: j, heureDebut: g.heureDebut, heureFin: g.heureFin, debut: instant(j, g.heureDebut) });
+      else if (exc.type === "annulee") res.push({ groupe: g, jour: j, heureDebut: g.heureDebut, heureFin: g.heureFin, debut: instant(j, g.heureDebut), annulee: exc });
+      // reportée : n'a plus lieu ce jour-là (sauf report le même jour à une autre heure, traité ci-dessous)
+    }
+    for (const x of g.exceptions ?? []) {
+      if (x.type === "reportee" && x.nouvelleDate === j && x.nouvelleHeure) {
+        res.push({ groupe: g, jour: j, heureDebut: x.nouvelleHeure, heureFin: ajouterMinutes(x.nouvelleHeure, dureeMinutes(g)), debut: instant(j, x.nouvelleHeure), reportDe: x.date });
+      }
+    }
+  }
+  return res.sort((a, b) => a.debut - b.debut);
+}
+
+/** Groupes qui ont cours ce jour-là (séances non annulées). */
 export function groupesDuJour(d: Donnees, jour = Date.now()): Groupe[] {
-  const nom = jourSemaine(jour);
-  return d.groupes.filter((g) => g.jourSemaine.toLowerCase() === nom.toLowerCase()).sort((a, b) => a.heureDebut.localeCompare(b.heureDebut));
+  return seancesDuJour(d, jour).filter((s) => !s.annulee).map((s) => s.groupe);
+}
+
+/** Prochaines séances (non annulées) à partir de maintenant, sur les 3 semaines à venir. */
+export function prochainesSeances(d: Donnees, depuis = Date.now(), groupeId?: string, max = 10): SeanceProgrammee[] {
+  const res: SeanceProgrammee[] = [];
+  for (let i = 0; i < 21 && res.length < max; i++) {
+    const jour = debutDuJour(depuis) + i * 86_400_000 + 3_600_000; // +1 h : évite les décalages d'heure d'été
+    for (const s of seancesDuJour(d, jour)) {
+      if (s.annulee || (groupeId && s.groupe.id !== groupeId)) continue;
+      if (s.debut + dureeMinutes(s.groupe) * 60_000 < depuis) continue;
+      res.push(s);
+    }
+  }
+  return res.slice(0, max);
+}
+
+/** Séances d'un groupe sur les semaines à venir (y compris annulées), pour choisir laquelle annuler/reporter. */
+export function seancesAVenirDuGroupe(d: Donnees, g: Groupe, semaines = 6, depuis = Date.now()): SeanceProgrammee[] {
+  const res: SeanceProgrammee[] = [];
+  for (let i = 0; i < semaines * 7; i++) {
+    const jour = debutDuJour(depuis) + i * 86_400_000 + 3_600_000;
+    for (const s of seancesDuJour(d, jour)) if (s.groupe.id === g.id && s.debut + 60 * 60_000 > depuis) res.push(s);
+  }
+  return res;
 }
 
 /** Groupe d'un paiement : celui enregistré, sinon le groupe actuel de l'élève. */
@@ -327,9 +436,8 @@ export function relancesAFaire(d: Donnees, now = Date.now()): Eleve[] {
   return elevesPaiementEnAttente(d).filter((e) => e.telephone.trim() && (!e.dernierRappel || now - e.dernierRappel >= delai));
 }
 
-/** Créneau d'aujourd'hui pour un groupe : ouverture de l'appel 30 min avant le début. */
-export function etatAppel(g: Groupe, now = Date.now()): { ouvert: boolean; ouverture: number; debut: number } {
-  const debut = (() => { const x = new Date(now); const [h, m] = g.heureDebut.split(":").map(Number); x.setHours(h || 0, m || 0, 0, 0); return x.getTime(); })();
-  const ouverture = debut - 30 * 60_000;
-  return { ouvert: now >= ouverture, ouverture, debut };
+/** Ouverture de l'appel : 30 min avant le début de la séance. */
+export function etatAppel(s: SeanceProgrammee, now = Date.now()): { ouvert: boolean; ouverture: number; debut: number } {
+  const ouverture = s.debut - 30 * 60_000;
+  return { ouvert: now >= ouverture, ouverture, debut: s.debut };
 }

@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, ClipboardCheck, GraduationCap, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
+import { BellRing, ClipboardCheck, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
 import { CONFIG } from "./config";
-import { elevesPaiementEnAttente, groupesDuJour, relancesAFaire, useDonnees } from "./store";
-import { combinerDateHeure } from "./utils";
+import { elevesPaiementEnAttente, relancesAFaire, seancesDuJour, useDonnees } from "./store";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
 import { BoutonInstaller } from "./installation";
 import { codeActif } from "./securite";
+import { demarrerSynchronisation } from "./sync";
+import { IndicateurSync } from "./pages/Synchro";
 import Accueil from "./pages/Accueil";
-import Eleves from "./pages/Eleves";
 import Groupes from "./pages/Groupes";
 import Seances from "./pages/Seances";
 import Paiements from "./pages/Paiements";
 import Notes from "./pages/Notes";
 import Parametres from "./pages/Parametres";
 
-export type Page = "accueil" | "eleves" | "groupes" | "seances" | "paiements" | "notes" | "parametres";
+export type Page = "accueil" | "groupes" | "seances" | "paiements" | "notes" | "parametres";
 
 const NAV: { id: Page; label: string; icon: typeof Home; mobile: boolean }[] = [
   { id: "accueil", label: "Accueil", icon: Home, mobile: true },
-  { id: "eleves", label: "Élèves", icon: GraduationCap, mobile: true },
-  { id: "groupes", label: "Groupes", icon: Users, mobile: true },
+  { id: "groupes", label: "Groupes & élèves", icon: Users, mobile: true },
   { id: "seances", label: "Séances", icon: ClipboardCheck, mobile: true },
   { id: "paiements", label: "Paiements", icon: Wallet, mobile: true },
   { id: "notes", label: "Notes", icon: NotebookPen, mobile: false },
@@ -28,7 +27,8 @@ const NAV: { id: Page; label: string; icon: typeof Home; mobile: boolean }[] = [
 ];
 
 function lirePage(): Page {
-  const h = window.location.hash.replace("#", "") as Page;
+  const brut = window.location.hash.replace("#", "");
+  const h = (brut === "eleves" ? "groupes" : brut) as Page;
   return NAV.some((n) => n.id === h) ? h : "accueil";
 }
 
@@ -36,6 +36,7 @@ export default function App() {
   const d = useDonnees();
   const [page, setPage] = useState<Page>(lirePage);
   const [ajoutEleve, setAjoutEleve] = useState(false);
+  const [groupeOuvert, setGroupeOuvert] = useState<string | null>(null);
   const enAttente = elevesPaiementEnAttente(d).length;
 
   // ---------- Code d'accès ----------
@@ -78,8 +79,9 @@ export default function App() {
     return () => window.clearInterval(t);
   }, []);
   // Rappels : cours des groupes (créneau hebdomadaire) qui commencent dans l'heure
-  const rappels = groupesDuJour(d, maintenant)
-    .map((g) => ({ id: g.id, nomEleve: g.nom, heure: g.heureDebut, lieu: g.lieu, date: combinerDateHeure(maintenant, g.heureDebut) }))
+  const rappels = seancesDuJour(d, maintenant)
+    .filter((s) => !s.annulee)
+    .map((s) => ({ id: s.groupe.id, nomEleve: s.groupe.nom, heure: s.heureDebut, lieu: s.groupe.lieu, date: s.debut }))
     .filter((r) => r.date > maintenant && r.date - maintenant <= 60 * 60_000 && !ignores.includes(r.id));
   useEffect(() => {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -99,7 +101,8 @@ export default function App() {
     window.addEventListener("hashchange", f);
     return () => window.removeEventListener("hashchange", f);
   }, []);
-  const aller = (p: Page) => {
+  const aller = (p: Page, groupeId: string | null = null) => {
+    setGroupeOuvert(groupeId);
     window.location.hash = p;
     setPage(p);
     window.scrollTo(0, 0);
@@ -127,13 +130,13 @@ export default function App() {
 
   useEffect(() => {
     document.title = CONFIG.nomApp;
+    demarrerSynchronisation();
   }, []);
 
   const contenu = (() => {
     switch (page) {
-      case "accueil": return <Accueil aller={aller} ajouterEleve={() => { setAjoutEleve(true); aller("eleves"); }} />;
-      case "eleves": return <Eleves ajoutInitial={ajoutEleve} finAjout={() => setAjoutEleve(false)} />;
-      case "groupes": return <Groupes />;
+      case "accueil": return <Accueil aller={aller} ajouterEleve={() => { setAjoutEleve(true); aller("groupes"); }} ouvrirGroupe={(id) => aller("groupes", id)} />;
+      case "groupes": return <Groupes groupeInitial={groupeOuvert} ajoutEleve={ajoutEleve} finAjout={() => setAjoutEleve(false)} />;
       case "seances": return <Seances />;
       case "paiements": return <Paiements />;
       case "notes": return <Notes />;
@@ -160,12 +163,16 @@ export default function App() {
             {n.id === "paiements" && enAttente > 0 && <span className="count">{enAttente}</span>}
           </button>
         ))}
-        <div className="installer"><BoutonInstaller className="btn secondary block" /></div>
+        <div className="installer row" style={{ gap: 6 }}>
+          <IndicateurSync onClick={() => aller("parametres")} />
+          <div className="grow"><BoutonInstaller className="btn secondary block" /></div>
+        </div>
       </aside>
 
       <header className="mobile-header">
         <img src="/icon-192.png" alt="" />
         <strong>{CONFIG.nomApp}</strong>
+        <IndicateurSync onClick={() => aller("parametres")} />
         <button className="icon-btn" aria-label="Notes" onClick={() => aller("notes")} style={page === "notes" ? { color: "var(--primary)" } : undefined}>
           <NotebookPen size={20} />
         </button>
@@ -191,7 +198,7 @@ export default function App() {
         {NAV.filter((n) => n.mobile).map((n) => (
           <button key={n.id} className={page === n.id ? "active" : ""} onClick={() => aller(n.id)}>
             <span className="pill"><n.icon size={21} /></span>
-            {n.label}
+            {n.label.split(" ")[0]}
             {n.id === "paiements" && enAttente > 0 && <span className="dot" />}
           </button>
         ))}

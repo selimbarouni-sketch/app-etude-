@@ -9,10 +9,10 @@ import { lienWhatsapp, numeroInternational, remplirModele } from "../utils";
  * WhatsApp ne permet pas de créer un groupe ni d'envoyer à plusieurs numéros depuis un lien :
  * on prépare donc le message, puis on l'envoie à chaque élève en un clic (WhatsApp s'ouvre à chaque fois).
  */
-export default function MessageWhatsApp({ groupeInitial, onClose }: { groupeInitial?: string; onClose: () => void }) {
+export default function MessageWhatsApp({ groupeInitial, messageInitial, onClose }: { groupeInitial?: string; messageInitial?: string; onClose: () => void }) {
   const d = useDonnees();
   const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-  const [groupe, setGroupe] = useState<string | null>(groupeInitial ?? null); // null = tous
+  const [groupe, setGroupe] = useState<string | null>(groupeInitial ?? d.groupes[0]?.nom ?? null);
   const eleves = useMemo(
     () => d.eleves
       .filter((e) => groupe === null || memeNom(e.groupe, groupe))
@@ -20,7 +20,7 @@ export default function MessageWhatsApp({ groupeInitial, onClose }: { groupeInit
     [d.eleves, groupe]
   );
   const [exclus, setExclus] = useState<string[]>([]);
-  const [message, setMessage] = useState(d.reglages.smsTemplateRappel);
+  const [message, setMessage] = useState(messageInitial ?? d.reglages.smsTemplateRappel);
   const [etape, setEtape] = useState<1 | 2>(1);
   const [envoyes, setEnvoyes] = useState<string[]>([]);
 
@@ -64,9 +64,8 @@ export default function MessageWhatsApp({ groupeInitial, onClose }: { groupeInit
         }} disabled={!choisis.length}><Copy size={16} />Copier les numéros</button>
         <button className="btn" disabled={!choisis.length || !message.trim()} onClick={() => setEtape(2)}>Suivant ({choisis.length})</button>
       </>}>
-      <Field label="Destinataires">
+      <Field label="1. Groupe">
         <div className="chips">
-          <button className={`chip ${groupe === null ? "on" : ""}`} onClick={() => { setGroupe(null); setExclus([]); }}>Tous</button>
           {d.groupes.map((g) => <button key={g.id} className={`chip ${groupe === g.nom ? "on" : ""}`} onClick={() => { setGroupe(g.nom); setExclus([]); }}>{g.nom}</button>)}
         </div>
       </Field>
