@@ -5,6 +5,7 @@ import type { Style, Theme } from "../types";
 import { Confirmation, Field, Modal, toast } from "../components";
 import { CONFIG } from "../config";
 import MessageWhatsApp from "./MessageWhatsApp";
+import SectionSynchro from "./Synchro";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
 import { formatDate, formatDuree, formatMontant, lireNombre, telecharger, versCsv } from "../utils";
@@ -28,6 +29,7 @@ export default function Parametres() {
     <>
       <div className="topbar"><h1>Paramètres & outils</h1></div>
       <div className="stack">
+        <SectionSynchro />
         <section className="card pad stack">
           <div className="row bold"><Moon size={18} />Apparence</div>
           <div className="small muted">Style</div>

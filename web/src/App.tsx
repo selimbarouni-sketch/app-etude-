@@ -6,6 +6,8 @@ import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
 import { BoutonInstaller } from "./installation";
 import { codeActif } from "./securite";
+import { demarrerSynchronisation } from "./sync";
+import { IndicateurSync } from "./pages/Synchro";
 import Accueil from "./pages/Accueil";
 import Groupes from "./pages/Groupes";
 import Seances from "./pages/Seances";
@@ -128,6 +130,7 @@ export default function App() {
 
   useEffect(() => {
     document.title = CONFIG.nomApp;
+    demarrerSynchronisation();
   }, []);
 
   const contenu = (() => {
@@ -160,12 +163,16 @@ export default function App() {
             {n.id === "paiements" && enAttente > 0 && <span className="count">{enAttente}</span>}
           </button>
         ))}
-        <div className="installer"><BoutonInstaller className="btn secondary block" /></div>
+        <div className="installer row" style={{ gap: 6 }}>
+          <IndicateurSync onClick={() => aller("parametres")} />
+          <div className="grow"><BoutonInstaller className="btn secondary block" /></div>
+        </div>
       </aside>
 
       <header className="mobile-header">
         <img src="/icon-192.png" alt="" />
         <strong>{CONFIG.nomApp}</strong>
+        <IndicateurSync onClick={() => aller("parametres")} />
         <button className="icon-btn" aria-label="Notes" onClick={() => aller("notes")} style={page === "notes" ? { color: "var(--primary)" } : undefined}>
           <NotebookPen size={20} />
         </button>

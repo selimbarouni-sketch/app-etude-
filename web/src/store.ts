@@ -64,8 +64,14 @@ let etat: Donnees = charger();
 const abonnes = new Set<() => void>();
 export let erreurSauvegarde = false;
 
-function maj(f: (d: Donnees) => Donnees) {
-  etat = f(etat);
+/** Appelés à chaque modification faite sur cet appareil (pour la synchronisation en ligne). */
+const surModificationLocale = new Set<() => void>();
+export const ecouterModifications = (cb: () => void) => {
+  surModificationLocale.add(cb);
+  return () => surModificationLocale.delete(cb);
+};
+
+function enregistrer() {
   try {
     localStorage.setItem(CLE, JSON.stringify(etat));
     erreurSauvegarde = false;
@@ -73,6 +79,18 @@ function maj(f: (d: Donnees) => Donnees) {
     erreurSauvegarde = true;
   }
   abonnes.forEach((cb) => cb());
+}
+
+function maj(f: (d: Donnees) => Donnees) {
+  etat = f(etat);
+  enregistrer();
+  surModificationLocale.forEach((cb) => cb());
+}
+
+/** Remplace les données par celles venues du serveur (sans déclencher de nouvel envoi). */
+export function remplacerDepuisServeur(d: unknown) {
+  etat = normaliser(d as Partial<Donnees>);
+  enregistrer();
 }
 
 // Synchronise plusieurs onglets ouverts
