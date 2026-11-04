@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { appelDuJour, seancesDuJour, useDonnees, vacancesLe } from "../store";
+import { appelDuJour, rattrapagesDuJour, seancesDuJour, useDonnees, vacancesLe } from "../store";
 import { debutDuJour, estAujourdhui, formatJourCourt, JOURS } from "../utils";
 
 /** Emploi du temps de la semaine (lundi → dimanche) : séances des groupes, reports, annulations, vacances. */
@@ -37,7 +37,17 @@ export default function Semaine() {
                 <span className="tiny muted">{new Date(j).getDate()}/{new Date(j).getMonth() + 1}</span>
               </div>
               {vac && <span className="badge orange" style={{ alignSelf: "flex-start" }}>{vac.motif}</span>}
-              {seances.length === 0 && !vac && <div className="tiny muted">Libre</div>}
+              {seances.length === 0 && !vac && rattrapagesDuJour(d, j + 3_600_000).length === 0 && <div className="tiny muted">Libre</div>}
+              {rattrapagesDuJour(d, j + 3_600_000).map((r) => {
+                const e = d.eleves.find((x) => x.id === r.eleveId);
+                return (
+                  <div key={r.id} className="creneau rattrapage">
+                    <div className="tiny bold">{r.heureDebut}–{r.heureFin}</div>
+                    <div className="small ellipsis">Rattrapage · {e ? `${e.prenom} ${e.nom}` : "élève supprimé"}</div>
+                    <div className="tiny muted">{r.statut ? "✓ fait" : r.motif || (e?.groupe ?? "")}</div>
+                  </div>
+                );
+              })}
               {seances.map((s) => {
                 const fait = appelDuJour(d, s.groupe.nom, j + 3_600_000).length > 0;
                 return (

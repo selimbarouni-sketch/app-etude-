@@ -137,3 +137,91 @@ export function recuPaiement(d: Donnees, p: Paiement): { blob: Blob; nom: string
   const nom = `Recu_${num}_${p.nomEleve}`.replace(/[^\w.\-]+/g, "_") + ".pdf";
   return { blob: doc.output("blob"), nom };
 }
+
+/** Bilan pédagogique d'un élève (à envoyer aux parents) : présences, notes, chapitres travaillés. */
+export function bilanEleve(d: Donnees, e: Eleve): { blob: Blob; nom: string } {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const mq = marque(d);
+  const couleur = mq.couleur;
+  const L = doc.internal.pageSize.getWidth();
+  const memeGroupe = (g: string) => g.trim().toLowerCase() === e.groupe.trim().toLowerCase();
+
+  doc.setFillColor(couleur);
+  doc.rect(0, 0, L, 80, "F");
+  let x = 40;
+  if (mq.logo.startsWith("data:")) { try { doc.setFillColor("#ffffff"); doc.roundedRect(34, 16, 48, 48, 6, 6, "F"); doc.addImage(mq.logo, "PNG", 36, 18, 44, 44); x = 94; } catch { /* ignore */ } }
+  doc.setTextColor("#ffffff");
+  doc.setFontSize(18); doc.text(mq.nom.slice(0, 40), x, 42);
+  doc.setFontSize(10); doc.text(mq.slogan.slice(0, 60), x, 60);
+  doc.setFontSize(12); doc.text("BILAN DE SUIVI", L - 40, 42, { align: "right" });
+  doc.setFontSize(10); doc.text(`Établi le ${formatDate(Date.now())}`, L - 40, 60, { align: "right" });
+
+  doc.setTextColor("#111111");
+  doc.setFontSize(16); doc.text(`${e.prenom} ${e.nom}`, 40, 115);
+  doc.setFontSize(11); doc.setTextColor("#555555");
+  doc.text([e.classe, e.groupe].filter(Boolean).join(" · "), 40, 133);
+
+  // Présences
+  const seances = d.seances.filter((s) => s.eleveId === e.id);
+  const nb = (st: string) => seances.filter((s) => s.statut === st).length;
+  const taux = seances.length ? Math.round(((nb("P") + nb("R")) / seances.length) * 100) : 0;
+  // Notes
+  const evals = d.evaluations.filter((ev) => memeGroupe(ev.groupe) && typeof ev.notes[e.id] === "number").sort((a, b) => a.date - b.date);
+  const moyenne = evals.length ? evals.reduce((s, ev) => s + ((ev.notes[e.id] as number) / ev.sur) * 20, 0) / evals.length : null;
+  const f = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 }).replace(/[  ]/g, " ");
+
+  // Encadrés résumé
+  const cases: [string, string][] = [
+    ["Présence", seances.length ? `${taux} %` : "—"],
+    ["Séances suivies", String(nb("P") + nb("R"))],
+    ["Absences", `${nb("A")}${nb("J") ? ` (+${nb("J")} justifiée${nb("J") > 1 ? "s" : ""})` : ""}`],
+    ["Moyenne", moyenne === null ? "—" : `${f(moyenne)} / 20`],
+  ];
+  const lc = (L - 80 - 30) / 4;
+  cases.forEach(([t, v], i) => {
+    const cx = 40 + i * (lc + 10);
+    doc.setDrawColor("#dddddd"); doc.roundedRect(cx, 150, lc, 54, 6, 6, "S");
+    doc.setFontSize(9); doc.setTextColor("#777777"); doc.text(t, cx + 10, 168);
+    doc.setFontSize(14); doc.setTextColor(couleur); doc.text(v, cx + 10, 192);
+  });
+
+  autoTable(doc, {
+    startY: 225,
+    head: [["Évaluation", "Date", "Note", "Moyenne du groupe"]],
+    body: evals.length ? evals.map((ev) => {
+      const n = Object.values(ev.notes).filter((x): x is number => typeof x === "number");
+      const mg = n.length ? n.reduce((a, b) => a + b, 0) / n.length : null;
+      return [ev.titre, formatDate(ev.date), `${f(ev.notes[e.id] as number)} / ${ev.sur}`, mg === null ? "—" : `${f(mg)} / ${ev.sur}`];
+    }) : [["Aucune évaluation notée", "", "", ""]],
+    headStyles: { fillColor: couleur }, styles: { fontSize: 9 }, margin: { left: 40, right: 40 },
+  });
+
+  const cahier = d.cahier.filter((c) => memeGroupe(c.groupe)).sort((a, b) => b.date - a.date).slice(0, 10);
+  autoTable(doc, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    startY: ((doc as any).lastAutoTable?.finalY ?? 260) + 20,
+    head: [["Date", "Travail en séance", "Devoirs"]],
+    body: cahier.length ? cahier.map((c) => [formatDate(c.date), c.chapitre, c.devoirs]) : [["", "Cahier de texte vide", ""]],
+    headStyles: { fillColor: couleur }, styles: { fontSize: 9 }, margin: { left: 40, right: 40 },
+    columnStyles: { 0: { cellWidth: 70 } },
+  });
+
+  const dernieres = [...seances].sort((a, b) => b.date - a.date).slice(0, 12);
+  autoTable(doc, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    startY: ((doc as any).lastAutoTable?.finalY ?? 400) + 20,
+    head: [["Dernières séances", "Présence"]],
+    body: dernieres.length ? dernieres.map((s) => [`${formatDate(s.date)} à ${s.heure}${s.groupe === "Rattrapage" ? " (rattrapage)" : ""}`, STATUT[s.statut]]) : [["Aucune séance", ""]],
+    headStyles: { fillColor: couleur }, styles: { fontSize: 9 }, margin: { left: 40, right: 40 },
+  });
+
+  if (e.observation) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const y = ((doc as any).lastAutoTable?.finalY ?? 600) + 24;
+    doc.setFontSize(10); doc.setTextColor("#111111");
+    doc.text(doc.splitTextToSize(`Observation : ${e.observation}`, L - 80), 40, y);
+  }
+  doc.setFontSize(8); doc.setTextColor("#999999");
+  doc.text(`${mq.nom} — bilan de ${e.prenom} ${e.nom}`, L / 2, doc.internal.pageSize.getHeight() - 24, { align: "center" });
+  return { blob: doc.output("blob"), nom: `Bilan_${e.prenom}_${e.nom}_${new Date().toISOString().slice(0, 10)}`.replace(/[^\w.\-]+/g, "_") + ".pdf" };
+}

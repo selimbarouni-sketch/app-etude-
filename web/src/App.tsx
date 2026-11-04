@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, ClipboardCheck, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
+import { BarChart3, BellRing, ClipboardCheck, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
 import { couleursTheme, marque } from "./marque";
-import { elevesPaiementEnAttente, relancesAFaire, seancesDuJour, useDonnees } from "./store";
+import { elevesPaiementEnAttente, rattrapagesDuJour, relancesAFaire, seancesDuJour, useDonnees } from "./store";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
 import { BoutonInstaller } from "./installation";
@@ -14,14 +14,16 @@ import Seances from "./pages/Seances";
 import Paiements from "./pages/Paiements";
 import Notes from "./pages/Notes";
 import Parametres from "./pages/Parametres";
+import Statistiques from "./pages/Statistiques";
 
-export type Page = "accueil" | "groupes" | "seances" | "paiements" | "notes" | "parametres";
+export type Page = "accueil" | "groupes" | "seances" | "paiements" | "stats" | "notes" | "parametres";
 
 const NAV: { id: Page; label: string; icon: typeof Home; mobile: boolean }[] = [
   { id: "accueil", label: "Accueil", icon: Home, mobile: true },
   { id: "groupes", label: "Groupes & élèves", icon: Users, mobile: true },
   { id: "seances", label: "Séances", icon: ClipboardCheck, mobile: true },
   { id: "paiements", label: "Paiements", icon: Wallet, mobile: true },
+  { id: "stats", label: "Statistiques", icon: BarChart3, mobile: true },
   { id: "notes", label: "Notes", icon: NotebookPen, mobile: false },
   { id: "parametres", label: "Paramètres", icon: Settings, mobile: false },
 ];
@@ -82,7 +84,11 @@ export default function App() {
   // Rappels : cours des groupes (créneau hebdomadaire) qui commencent dans l'heure
   const rappels = seancesDuJour(d, maintenant)
     .filter((s) => !s.annulee)
-    .map((s) => ({ id: s.groupe.id, nomEleve: s.groupe.nom, heure: s.heureDebut, lieu: s.groupe.lieu, date: s.debut }))
+    .map((s) => ({ id: s.groupe.id, nomEleve: `groupe ${s.groupe.nom}`, heure: s.heureDebut, lieu: s.groupe.lieu, date: s.debut }))
+    .concat(rattrapagesDuJour(d, maintenant).filter((r) => !r.statut).map((r) => {
+      const e = d.eleves.find((x) => x.id === r.eleveId);
+      return { id: r.id, nomEleve: `rattrapage ${e ? e.prenom + " " + e.nom : ""}`, heure: r.heureDebut, lieu: "", date: r.debut };
+    }))
     .filter((r) => r.date > maintenant && r.date - maintenant <= 60 * 60_000 && !ignores.includes(r.id));
   useEffect(() => {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -148,6 +154,7 @@ export default function App() {
       case "groupes": return <Groupes groupeInitial={groupeOuvert} ajoutEleve={ajoutEleve} finAjout={() => setAjoutEleve(false)} />;
       case "seances": return <Seances />;
       case "paiements": return <Paiements />;
+      case "stats": return <Statistiques />;
       case "notes": return <Notes />;
       case "parametres": return <Parametres />;
     }
@@ -195,7 +202,7 @@ export default function App() {
           <div key={r.id} className="rappel" role="alert">
             <BellRing size={20} />
             <div className="grow small">
-              <b>Rappel :</b> cours du groupe <b>{r.nomEleve}</b> à {r.heure} (dans {Math.max(1, Math.round((r.date - maintenant) / 60000))} min) · {r.lieu}
+              <b>Rappel :</b> cours — <b>{r.nomEleve}</b> à {r.heure} (dans {Math.max(1, Math.round((r.date - maintenant) / 60000))} min) · {r.lieu}
             </div>
             <button className="icon-btn" aria-label="Masquer le rappel" onClick={() => setIgnores([...ignores, r.id])}><X size={17} /></button>
           </div>
@@ -207,7 +214,7 @@ export default function App() {
         {NAV.filter((n) => n.mobile).map((n) => (
           <button key={n.id} className={page === n.id ? "active" : ""} onClick={() => aller(n.id)}>
             <span className="pill"><n.icon size={21} /></span>
-            {n.label.split(" ")[0]}
+            {n.id === "stats" ? "Stats" : n.label.split(" ")[0]}
             {n.id === "paiements" && enAttente > 0 && <span className="dot" />}
           </button>
         ))}

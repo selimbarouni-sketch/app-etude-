@@ -401,3 +401,21 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-
 .pastille.autre { display: inline-grid; place-items: center; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); color: #fff; font-weight: 700; text-shadow: 0 0 3px #000; overflow: hidden; }
 .pastille.autre input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .brand img, .mobile-header img { object-fit: contain; }
+.creneau.rattrapage { border-left-color: var(--orange); background: var(--orange-soft); }
+
+/* ---------- Statistiques ---------- */
+.barres { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; align-items: end; height: 222px; padding: 20px 0 0 38px; }
+.barres .repere { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border); pointer-events: none; }
+.barres .repere span { position: absolute; left: 0; top: -7px; font-size: 10px; color: var(--muted); background: var(--surface); padding-right: 4px; font-variant-numeric: tabular-nums; }
+.barres .colonne .tiny { font-size: 10px; overflow: hidden; max-width: 100%; }
+.barres .colonne { min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; cursor: pointer; }
+.barres .barre { width: 100%; max-width: 28px; background: var(--primary); border-radius: 4px 4px 0 0; transition: opacity 0.15s; }
+.barres .infobulle { position: absolute; bottom: calc(100% - 10px); z-index: 2; background: var(--text); color: var(--surface); font-size: 12px; padding: 6px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
+.tableau { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tableau th, .tableau td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tableau th { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* ---------- Espace parents ---------- */
+.parent { max-width: 720px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.parent-entete { display: flex; align-items: center; gap: 12px; color: #fff; padding: 16px; border-radius: var(--radius); }
+.parent-entete img { width: 52px; height: 52px; border-radius: 12px; background: #fff; object-fit: contain; padding: 3px; }

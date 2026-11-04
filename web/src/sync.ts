@@ -35,7 +35,7 @@ export function enregistrerConfig(c: ConfigServeur | null) {
   serveur = null;
 }
 
-type Meta = { versionServeur?: string; modifieLocalement?: boolean; majLocale?: number; derniereSauvegarde?: string };
+type Meta = { versionServeur?: string; modifieLocalement?: boolean; majLocale?: number; derniereSauvegarde?: string; empreintePartages?: string };
 const lireMeta = (): Meta => { try { return JSON.parse(localStorage.getItem(CLE_META) || "{}"); } catch { return {}; } };
 const ecrireMeta = (m: Meta) => { try { localStorage.setItem(CLE_META, JSON.stringify(m)); } catch { /* ignore */ } };
 
@@ -51,6 +51,9 @@ interface Serveur {
   ajouterSauvegarde(donnees: unknown, motif: string): Promise<void>;
   listerSauvegardes(): Promise<Sauvegarde[]>;
   lireSauvegarde(id: number): Promise<unknown>;
+  /** Espace parents : publie les fiches partagées et retire celles qui ne le sont plus. */
+  publierPartages(partages: { jeton: string; eleveId: string; donnees: unknown }[]): Promise<void>;
+  lireEspaceParent(jeton: string): Promise<unknown | null>;
 }
 
 const traduire = (m: string) =>
@@ -99,6 +102,18 @@ async function creerServeurSupabase(c: ConfigServeur): Promise<Serveur> {
     async lireSauvegarde(id) {
       return (verifier(await sb.from("profsuivi_sauvegardes").select("donnees").eq("id", id).single()) as { donnees: unknown }).donnees;
     },
+    async publierPartages(partages) {
+      const id = await uid();
+      if (partages.length) {
+        verifier(await sb.from("profsuivi_partages").upsert(partages.map((p) => ({ jeton: p.jeton, user_id: id, eleve_id: p.eleveId, donnees: p.donnees, maj: new Date().toISOString() }))));
+      }
+      const existants = verifier(await sb.from("profsuivi_partages").select("jeton").eq("user_id", id)) as { jeton: string }[];
+      const aRetirer = existants.map((x) => x.jeton).filter((j) => !partages.some((p) => p.jeton === j));
+      if (aRetirer.length) verifier(await sb.from("profsuivi_partages").delete().in("jeton", aRetirer));
+    },
+    async lireEspaceParent(jeton) {
+      return verifier(await sb.rpc("profsuivi_espace_parent", { p_jeton: jeton }));
+    },
   };
 }
 
@@ -118,6 +133,13 @@ function creerServeurMemoire(): Serveur {
     async ajouterSauvegarde(donnees, motif) { const b = lireBase(); b.sauvegardes.unshift({ id: Date.now() + Math.random(), u: moi(), motif, cree_le: new Date().toISOString(), donnees }); b.sauvegardes = b.sauvegardes.slice(0, 30); ecrireBase(b); },
     async listerSauvegardes() { const u = moi(); return lireBase().sauvegardes.filter((x: { u: string }) => x.u === u); },
     async lireSauvegarde(id) { return lireBase().sauvegardes.find((x: { id: number }) => x.id === id)?.donnees; },
+    async publierPartages(partages) {
+      const b = lireBase(); const u = moi();
+      b.partages = Object.fromEntries(Object.entries(b.partages ?? {}).filter(([, v]) => (v as { u: string }).u !== u));
+      partages.forEach((p) => { b.partages[p.jeton] = { u, donnees: p.donnees }; });
+      ecrireBase(b);
+    },
+    async lireEspaceParent(jeton) { return lireBase().partages?.[jeton]?.donnees ?? null; },
   };
 }
 
@@ -176,6 +198,7 @@ async function executer() {
       }
     }
     await sauvegardeQuotidienne(s);
+    await publierEspacesParents(s);
     changer({ statut: "a_jour", derniereSync: Date.now() });
   } catch (e) {
     const msg = traduire((e as Error).message || String(e));
@@ -194,6 +217,24 @@ async function envoyer(s: Serveur, donnees: unknown) {
 function appliquer(distant: { donnees: unknown; maj: string }) {
   remplacerDepuisServeur(distant.donnees);
   ecrireMeta({ ...lireMeta(), versionServeur: distant.maj, modifieLocalement: false });
+}
+
+/** Met à jour les espaces parents (seulement si leur contenu a changé). */
+async function publierEspacesParents(s: Serveur) {
+  const d = getDonnees();
+  const { construireEspace } = await import("./espaceParent");
+  const partages = d.eleves.filter((e) => e.lienParent).map((e) => ({ jeton: e.lienParent!, eleveId: e.id, donnees: construireEspace(d, e) }));
+  // Empreinte sans la date de mise à jour, pour ne republier que si quelque chose a changé
+  const empreinte = JSON.stringify(partages.map((p) => [p.jeton, { ...p.donnees, maj: "" }]));
+  const meta = lireMeta();
+  if (meta.empreintePartages === empreinte) return;
+  try {
+    await s.publierPartages(partages);
+    ecrireMeta({ ...lireMeta(), empreintePartages: empreinte });
+  } catch (e) {
+    // Table absente (script SQL pas encore relancé) : on ne bloque pas la synchronisation
+    console.warn("Espace parents :", (e as Error).message);
+  }
 }
 
 async function sauvegardeQuotidienne(s: Serveur) {
@@ -294,3 +335,39 @@ export function reinitialiser() {
   changer({ statut: lireConfig() ? "deconnecte" : "non_configure", erreur: null });
   synchroniser();
 }
+
+/** Sauvegarde en ligne immédiate (ex. archive de fin d'année). Renvoie false si non connecté. */
+export async function sauvegardeEnLigne(motif: string): Promise<boolean> {
+  try {
+    const s = await obtenirServeur();
+    if (!s || !(await s.session())) return false;
+    await s.ajouterSauvegarde(getDonnees(), motif);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Espace parents (page publique) ----------
+/** Paramètres de connexion inclus dans le lien (la clé « anon » est publique par nature). */
+export function parametreServeurPourLien(): string {
+  if (configParEnvironnement()) return "";
+  const c = lireConfig();
+  if (!c) return "";
+  return "&s=" + btoa(JSON.stringify({ u: c.url, k: c.cle })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export async function lireEspaceParent(jeton: string, parametre?: string | null): Promise<unknown | null> {
+  let c = lireConfig();
+  if (parametre) {
+    try {
+      const j = JSON.parse(atob(parametre.replace(/-/g, "+").replace(/_/g, "/")));
+      c = { url: j.u, cle: j.k };
+    } catch { /* lien abîmé */ }
+  }
+  if (!c) throw new Error("Lien incomplet.");
+  const s = c.url.startsWith("memoire://") ? creerServeurMemoire() : await creerServeurSupabase(c);
+  return s.lireEspaceParent(jeton);
+}
+
+export const synchronisationActive = () => etatSync.statut === "a_jour" || etatSync.statut === "en_cours" || (!!etatSync.email && etatSync.statut !== "deconnecte");

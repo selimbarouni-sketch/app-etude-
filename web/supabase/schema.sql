@@ -29,3 +29,31 @@ create policy "donnees du proprietaire" on public.profsuivi_donnees
 drop policy if exists "sauvegardes du proprietaire" on public.profsuivi_sauvegardes;
 create policy "sauvegardes du proprietaire" on public.profsuivi_sauvegardes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ============================================================
+-- Espace parents (lien privé en lecture seule, sans compte)
+-- À exécuter aussi si vous aviez déjà lancé ce script : il peut être relancé sans risque.
+-- ============================================================
+create table if not exists public.profsuivi_partages (
+  jeton text primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  eleve_id text not null,
+  donnees jsonb not null,
+  maj timestamptz not null default now()
+);
+alter table public.profsuivi_partages enable row level security;
+drop policy if exists "partages du proprietaire" on public.profsuivi_partages;
+create policy "partages du proprietaire" on public.profsuivi_partages
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Lecture par le parent : uniquement avec le jeton exact (impossible de lister les autres élèves)
+create or replace function public.profsuivi_espace_parent(p_jeton text)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select donnees from public.profsuivi_partages where jeton = p_jeton and length(p_jeton) >= 20;
+$$;
+revoke all on function public.profsuivi_espace_parent(text) from public;
+grant execute on function public.profsuivi_espace_parent(text) to anon, authenticated;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock } from "lucide-react";
-import { actions, appelDuJour, etatAppel, prochainesSeances, seancesDuJour, useDonnees } from "../store";
+import { actions, appelDuJour, etatAppel, prochainesSeances, rattrapagesDuJour, seancesDuJour, useDonnees } from "../store";
 import type { Statut } from "../types";
 import { DemandeCode, Vide, toast } from "../components";
 import Semaine from "./Semaine";
@@ -46,6 +46,8 @@ function Appel() {
   const groupe = seance?.groupe ?? null;
   const [statuts, setStatuts] = useState<Record<string, Statut>>({});
   const [corriger, setCorriger] = useState(false);
+  const [chapitre, setChapitre] = useState("");
+  const [devoirs, setDevoirs] = useState("");
 
   const entete = (
     <div className="card pad row" style={{ gap: 10 }}>
@@ -62,7 +64,8 @@ function Appel() {
     return (
       <div className="stack">
         {entete}
-        <Vide icone={<ClipboardList size={48} />} texte="Aucune séance programmée aujourd'hui : pas d'appel à faire." />
+        {rattrapagesDuJour(d, maintenant).length === 0 && <Vide icone={<ClipboardList size={48} />} texte="Aucune séance programmée aujourd'hui : pas d'appel à faire." />}
+        <RattrapagesDuJour maintenant={maintenant} />
         {prochaines.length > 0 && (
           <div className="card pad small">
             <div className="bold" style={{ marginBottom: 6 }}>Prochaines séances</div>
@@ -109,6 +112,8 @@ function Appel() {
           );
         })}
       </div>
+
+      <RattrapagesDuJour maintenant={maintenant} />
 
       {groupe && seance && etat && (
         dejaFait.length > 0 ? (
@@ -172,7 +177,18 @@ function Appel() {
                 </div>
               ))}
             </div>
+            <div className="card pad stack" style={{ gap: 8 }}>
+              <div className="small bold muted">Cahier de texte (facultatif)</div>
+              <input className="input" value={chapitre} onChange={(e) => setChapitre(e.target.value)} placeholder="Chapitre / ce qui a été fait aujourd'hui" />
+              <input className="input" value={devoirs} onChange={(e) => setDevoirs(e.target.value)} placeholder="Devoirs donnés pour la prochaine séance" />
+            </div>
             <button className="btn block" style={{ padding: 14 }} onClick={() => {
+              if (chapitre.trim() || devoirs.trim()) {
+                // prochaine séance du groupe à partir du lendemain
+                const suivante = prochainesSeances(d, seance.jour + 86_400_000 + 3_600_000, groupe.id, 1)[0];
+                actions.enregistrerCahier({ groupe: groupe.nom, date: seance.debut, chapitre: chapitre.trim(), devoirs: devoirs.trim(), pourLe: devoirs.trim() ? suivante?.debut : undefined });
+                setChapitre(""); setDevoirs("");
+              }
               const atteints = actions.enregistrerAppel(eleves.map((e) => ({
                 eleveId: e.id, date: seance.debut, heure: seance.heureDebut,
                 dureeHeures: dureeEntre(seance.heureDebut, seance.heureFin) ?? d.reglages.dureeParDefautHeures,
@@ -217,5 +233,49 @@ function Historique() {
         ))}
       </div>
     </>
+  );
+}
+
+/** Rattrapages individuels prévus aujourd'hui : appel élève par élève. */
+function RattrapagesDuJour({ maintenant }: { maintenant: number }) {
+  const d = useDonnees();
+  const liste = rattrapagesDuJour(d, maintenant);
+  const [statuts, setStatuts] = useState<Record<string, Statut>>({});
+  if (!liste.length) return null;
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="small bold muted">Rattrapages d'aujourd'hui</div>
+      {liste.map((r) => {
+        const e = d.eleves.find((x) => x.id === r.eleveId);
+        if (!e) return null;
+        const st = statuts[r.id] ?? "P";
+        const ouvert = maintenant >= r.debut - 30 * 60_000;
+        return (
+          <div key={r.id} className="card item">
+            <span className="badge blue">{r.heureDebut}</span>
+            <div className="grow">
+              <div className="bold ellipsis">{e.prenom} {e.nom}</div>
+              <div className="tiny muted">Rattrapage {r.heureDebut}–{r.heureFin}{r.motif && ` · ${r.motif}`}{r.comptee ? "" : " · non compté"}</div>
+            </div>
+            {r.statut ? <span className={`badge ${COULEURS[r.statut]}`}>✓ {LIBELLES[r.statut]}</span>
+              : !ouvert ? <span className="badge">Ouvre à {heureDe(r.debut - 30 * 60_000)}</span>
+              : (
+                <div className="row" style={{ gap: 4 }}>
+                  <div className="statut-group">
+                    {(["P", "A", "R", "J"] as Statut[]).map((x) => (
+                      <button key={x} title={LIBELLES[x]} className={`statut-btn ${x} ${st === x ? "on" : ""}`} onClick={() => setStatuts({ ...statuts, [r.id]: x })}>{x}</button>
+                    ))}
+                  </div>
+                  <button className="btn small" onClick={() => {
+                    const atteints = actions.validerRattrapage(r.id, st);
+                    toast("Rattrapage enregistré");
+                    notifierPaiementsAttendus(atteints, d.reglages.seancesParPaiement);
+                  }}>OK</button>
+                </div>
+              )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
