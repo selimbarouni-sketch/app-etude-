@@ -8,6 +8,8 @@ Supabase est gratuit pour un usage comme celui-ci (formule « Free »). Comptez 
 2. **New project** : nom `profsuivi`, choisir un mot de passe de base de données (à garder), région **Europe (Frankfurt ou Paris)** → **Create new project**. Attendre 1 à 2 minutes.
 
 ## 2. Créer les tables
+> Déjà fait avant l'ajout de l'**espace parents** ? Relancez simplement le script complet : il peut être exécuté plusieurs fois sans risque et ajoute ce qui manque.
+
 1. Menu de gauche → **SQL Editor** → **New query**.
 2. Copier tout le contenu du fichier [`web/supabase/schema.sql`](web/supabase/schema.sql), le coller, cliquer **Run**. Le message « Success » doit s'afficher.
 
@@ -42,3 +44,9 @@ Si un appareil contient déjà des données différentes, l'application demande 
 - Sans Internet, l'application continue de fonctionner ; tout est envoyé au retour de la connexion.
 - **Sauvegardes** : une par jour (30 dernières), restaurables depuis **Paramètres → Synchronisation → Sauvegardes**.
 - Le code d'accès (1234 par défaut) reste propre à chaque appareil.
+
+## Espace parents
+Dans la fiche d'un élève : **Espace parents → Créer le lien**, puis **Envoyer** (WhatsApp au parent).
+Le parent ouvre le lien sans compte ni mot de passe et voit uniquement les informations de son enfant
+(présences, devoirs, notes, paiements, prochaines séances), mises à jour à chaque synchronisation.
+**Désactiver** rend le lien inutilisable.
