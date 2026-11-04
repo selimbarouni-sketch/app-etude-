@@ -1,15 +1,16 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { CONFIG } from "./config";
+import { marque } from "./marque";
 import type { Donnees, Eleve, Paiement } from "./types";
 import { formatDate, formatDuree, formatMontant } from "./utils";
 
-const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard" };
+const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard", J: "Absence justifiée" };
 
 /** Rapport PDF d'un élève (toutes les séances et tous les paiements, sur plusieurs pages si besoin). */
 export function rapportEleve(d: Donnees, e: Eleve) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const bleu = CONFIG.couleurPrincipale;
+  const mq = marque(d);
+  const bleu = mq.couleur;
   const seances = d.seances.filter((s) => s.eleveId === e.id).sort((a, b) => b.date - a.date);
   const paiements = d.paiements.filter((p) => p.eleveId === e.id).sort((a, b) => b.date - a.date);
   const devise = d.reglages.devise;
@@ -18,7 +19,8 @@ export function rapportEleve(d: Donnees, e: Eleve) {
 
   doc.setTextColor(bleu);
   doc.setFontSize(20);
-  doc.text(`${CONFIG.nomApp} — Rapport élève`, 40, 50);
+  if (mq.logo.startsWith("data:")) { try { doc.addImage(mq.logo, "PNG", 515, 22, 40, 40); } catch { /* logo illisible */ } }
+  doc.text(`${mq.nom} — Rapport élève`, 40, 50);
   doc.setTextColor("#555");
   doc.setFontSize(10);
   doc.text(`Généré le ${formatDate(Date.now())}`, 40, 66);
@@ -74,7 +76,8 @@ export function numeroRecu(d: Donnees, p: Paiement): string {
 /** Reçu de paiement au format PDF (A5). */
 export function recuPaiement(d: Donnees, p: Paiement): { blob: Blob; nom: string } {
   const doc = new jsPDF({ unit: "pt", format: "a5" });
-  const couleur = d.reglages.style === "chic" ? CONFIG.couleurChic : CONFIG.couleurPrincipale;
+  const mq = marque(d);
+  const couleur = mq.couleur;
   const devise = d.reglages.devise;
   const m = (n: number) => formatMontant(n).replace(/[  ]/g, " ");
   const num = numeroRecu(d, p);
@@ -84,9 +87,14 @@ export function recuPaiement(d: Donnees, p: Paiement): { blob: Blob; nom: string
   doc.rect(0, 0, largeur, 70, "F");
   doc.setTextColor("#ffffff");
   doc.setFontSize(20);
-  doc.text(CONFIG.nomApp, 30, 40);
+  // Logo personnalisé dans un carré blanc, puis nom et sous-titre
+  let x = 30;
+  if (mq.logo.startsWith("data:")) {
+    try { doc.setFillColor("#ffffff"); doc.roundedRect(24, 13, 44, 44, 6, 6, "F"); doc.addImage(mq.logo, "PNG", 26, 15, 40, 40); x = 78; } catch { /* logo illisible */ }
+  }
+  doc.text(mq.nom.slice(0, 28), x, 40);
   doc.setFontSize(10);
-  doc.text(CONFIG.slogan, 30, 56);
+  doc.text(mq.slogan.slice(0, 40), x, 56);
   doc.setFontSize(12);
   doc.text("REÇU DE PAIEMENT", largeur - 30, 40, { align: "right" });
   doc.setFontSize(10);

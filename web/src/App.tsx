@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { BellRing, ClipboardCheck, Home, NotebookPen, Settings, Users, Wallet, X } from "lucide-react";
-import { CONFIG } from "./config";
+import { couleursTheme, marque } from "./marque";
 import { elevesPaiementEnAttente, relancesAFaire, seancesDuJour, useDonnees } from "./store";
 import { ToastHost } from "./components";
 import Verrouillage from "./Verrouillage";
@@ -34,6 +34,7 @@ function lirePage(): Page {
 
 export default function App() {
   const d = useDonnees();
+  const m = marque(d);
   const [page, setPage] = useState<Page>(lirePage);
   const [ajoutEleve, setAjoutEleve] = useState(false);
   const [groupeOuvert, setGroupeOuvert] = useState<string | null>(null);
@@ -117,19 +118,27 @@ export default function App() {
       const root = document.documentElement;
       root.dataset.theme = sombre ? "sombre" : "clair";
       root.dataset.style = chic ? "chic" : "classique";
-      const couleur = chic
-        ? (sombre ? CONFIG.couleurChicSombre : CONFIG.couleurChic)
-        : (sombre ? CONFIG.couleurPrincipaleSombre : CONFIG.couleurPrincipale);
+      // Couleur personnalisée (Paramètres > Personnalisation) ou couleur du style
+      const { principale: couleur, surPrincipale } = couleursTheme(d, sombre);
       root.style.setProperty("--primary", couleur);
+      root.style.setProperty("--on-primary", surPrincipale);
       document.querySelector('meta[name="theme-color"]')?.setAttribute("content", sombre ? (chic ? "#121212" : "#0f1115") : (chic ? "#F7F3EC" : couleur));
     };
     appliquer();
     mq.addEventListener("change", appliquer);
     return () => mq.removeEventListener("change", appliquer);
-  }, [d.reglages.theme, d.reglages.style]);
+  }, [d.reglages.theme, d.reglages.style, d.reglages.marque?.couleur]);
+
+  // Nom et logo personnalisés : titre de l'onglet et icône
+  useEffect(() => {
+    document.title = m.nom;
+    const icone = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icone) icone.href = m.logo;
+    const apple = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (apple && m.logo.startsWith("data:")) apple.href = m.logo;
+  }, [m.nom, m.logo]);
 
   useEffect(() => {
-    document.title = CONFIG.nomApp;
     demarrerSynchronisation();
   }, []);
 
@@ -150,10 +159,10 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <img src="/icon-192.png" alt="" />
+          <img src={m.logo} alt="" />
           <div>
-            <strong>{CONFIG.nomApp}</strong>
-            <span>{CONFIG.slogan}</span>
+            <strong>{m.nom}</strong>
+            <span>{m.slogan}</span>
           </div>
         </div>
         {NAV.map((n) => (
@@ -170,8 +179,8 @@ export default function App() {
       </aside>
 
       <header className="mobile-header">
-        <img src="/icon-192.png" alt="" />
-        <strong>{CONFIG.nomApp}</strong>
+        <img src={m.logo} alt="" />
+        <strong className="ellipsis">{m.nom}</strong>
         <IndicateurSync onClick={() => aller("parametres")} />
         <button className="icon-btn" aria-label="Notes" onClick={() => aller("notes")} style={page === "notes" ? { color: "var(--primary)" } : undefined}>
           <NotebookPen size={20} />

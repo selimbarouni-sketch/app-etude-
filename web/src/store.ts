@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { CONFIG } from "./config";
-import type { Donnees, Eleve, ExceptionSeance, Groupe, Note, Paiement, Reglages, Seance, Statut } from "./types";
+import type { Donnees, Eleve, ExceptionSeance, Groupe, Note, Paiement, Reglages, Seance, Statut, Vacances } from "./types";
 import { debutDuJour, jourSemaine, uid } from "./utils";
 
 /**
@@ -19,6 +19,9 @@ export const REGLAGES_DEFAUT: Reglages = {
   smsTemplateRappel: "Bonjour {prenom}, petit rappel concernant votre cours de {classe} à {heure}. Merci !",
   smsTemplatePaiement: "Bonjour {prenom}, vous avez effectué {seances} séances : merci de prévoir le paiement du forfait ({montant} {devise}). Merci !",
   relanceJours: 3,
+  absencesComptees: false,
+  seuilAbsences: 2,
+  smsTemplateAbsence: "Bonjour, {prenom} a été absent(e) aux {nb} dernières séances du groupe {groupe}. Tout va bien ? Merci de me tenir informé(e).",
 };
 
 function donneesInitiales(): Donnees {
@@ -31,6 +34,7 @@ function donneesInitiales(): Donnees {
     paiements: [],
     dossiers: [],
     notes: [],
+    vacances: [],
     reglages: { ...REGLAGES_DEFAUT },
   };
 }
@@ -46,6 +50,7 @@ function normaliser(d: Partial<Donnees>): Donnees {
     paiements: d.paiements ?? [],
     dossiers: d.dossiers ?? [],
     notes: d.notes ?? [],
+    vacances: d.vacances ?? [],
     reglages: { ...REGLAGES_DEFAUT, ...(d.reglages ?? {}) },
   };
 }
@@ -115,7 +120,8 @@ export function useDonnees(): Donnees {
 
 export const getDonnees = () => etat;
 
-const compte = (s: Statut) => s === "P" || s === "R";
+/** Séance due (comptée pour le paiement) : présence, retard, et absence non justifiée si le réglage le prévoit. */
+const compte = (s: Statut) => s === "P" || s === "R" || (s === "A" && etat.reglages.absencesComptees);
 
 export const actions = {
   // ---------- Élèves ----------
@@ -175,6 +181,16 @@ export const actions = {
       ...d,
       groupes: d.groupes.map((g) => g.id === groupeId ? { ...g, exceptions: (g.exceptions ?? []).filter((x) => x.id !== exceptionId) } : g),
     }));
+  },
+  ajouterVacances(v: Omit<Vacances, "id">) {
+    maj((d) => ({ ...d, vacances: [...d.vacances, { ...v, id: uid() }].sort((a, b) => a.debut - b.debut) }));
+  },
+  supprimerVacances(id: string) {
+    maj((d) => ({ ...d, vacances: d.vacances.filter((v) => v.id !== id) }));
+  },
+  /** L'alerte d'absences de cet élève a été traitée (message envoyé ou ignorée). */
+  traiterAlerteAbsence(eleveId: string) {
+    maj((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === eleveId ? { ...e, alerteAbsenceVue: Date.now() } : e)) }));
   },
   /** Place des élèves existants dans un groupe (un élève n'appartient qu'à un groupe). */
   affecterEleves(nomGroupe: string, ids: string[]) {
@@ -379,6 +395,7 @@ export function seancesDuJour(d: Donnees, jour = Date.now()): SeanceProgrammee[]
   const j = debutDuJour(jour);
   const nom = jourSemaine(j).toLowerCase();
   const res: SeanceProgrammee[] = [];
+  const vac = vacancesLe(d, j);
   for (const g of d.groupes) {
     const exc = (g.exceptions ?? []).find((x) => x.date === j);
     if (g.jourSemaine.toLowerCase() === nom) {
@@ -392,7 +409,14 @@ export function seancesDuJour(d: Donnees, jour = Date.now()): SeanceProgrammee[]
       }
     }
   }
+  // Vacances / jour férié : toutes les séances du jour sont annulées
+  if (vac) res.forEach((s) => { if (!s.annulee) s.annulee = { id: vac.id, date: j, type: "annulee", motif: vac.motif || "Vacances" }; });
   return res.sort((a, b) => a.debut - b.debut);
+}
+
+export function vacancesLe(d: Donnees, jour: number): Vacances | undefined {
+  const j = debutDuJour(jour);
+  return d.vacances.find((v) => j >= v.debut && j <= v.fin);
 }
 
 /** Groupes qui ont cours ce jour-là (séances non annulées). */
@@ -433,7 +457,7 @@ export function groupeDuPaiement(d: Donnees, p: Paiement): string {
 /** Élèves qui doivent payer et à relancer (jamais relancés, ou dernier rappel plus vieux que N jours). */
 export function relancesAFaire(d: Donnees, now = Date.now()): Eleve[] {
   const delai = Math.max(1, d.reglages.relanceJours) * 86_400_000;
-  return elevesPaiementEnAttente(d).filter((e) => e.telephone.trim() && (!e.dernierRappel || now - e.dernierRappel >= delai));
+  return elevesPaiementEnAttente(d).filter((e) => destinataires(e).length > 0 && (!e.dernierRappel || now - e.dernierRappel >= delai));
 }
 
 /** Ouverture de l'appel : 30 min avant le début de la séance. */
@@ -462,3 +486,41 @@ export function chevauchementLe(d: Donnees, jour: number, heureDebut: string, he
 
 /** Heure de fin d'une séance reportée (même durée que le créneau du groupe). */
 export const finApres = (g: Groupe, heureDebut: string) => ajouterMinutes(heureDebut, dureeMinutes(g));
+
+// ---------- Tarifs ----------
+/** Prix d'une séance pour un élève : tarif de son groupe (ou général), moins sa réduction. */
+export function prixSeance(d: Donnees, e: Eleve): number {
+  const g = d.groupes.find((x) => x.nom.trim().toLowerCase() === e.groupe.trim().toLowerCase());
+  const base = g?.tarifSeance ?? d.reglages.tarifForfait / Math.max(1, d.reglages.seancesParPaiement);
+  return Math.round(base * (1 - Math.min(100, Math.max(0, e.remise ?? 0)) / 100) * 100) / 100;
+}
+
+// ---------- Contacts ----------
+/** Numéros à qui envoyer un message pour cet élève (élève, parent ou les deux). */
+export function destinataires(e: Eleve): { libelle: string; telephone: string }[] {
+  const choix = e.contactMessages ?? (e.telephoneParent ? "parent" : "eleve");
+  const res: { libelle: string; telephone: string }[] = [];
+  if ((choix === "eleve" || choix === "les_deux") && e.telephone.trim()) res.push({ libelle: "Élève", telephone: e.telephone });
+  if ((choix === "parent" || choix === "les_deux") && e.telephoneParent?.trim()) res.push({ libelle: e.nomParent?.trim() || "Parent", telephone: e.telephoneParent });
+  if (!res.length && e.telephone.trim()) res.push({ libelle: "Élève", telephone: e.telephone });
+  if (!res.length && e.telephoneParent?.trim()) res.push({ libelle: "Parent", telephone: e.telephoneParent });
+  return res;
+}
+
+// ---------- Absences ----------
+/** Nombre d'absences non justifiées consécutives (séances les plus récentes). */
+export function absencesConsecutives(d: Donnees, e: Eleve): { nb: number; derniere: number } {
+  const liste = d.seances.filter((s) => s.eleveId === e.id).sort((a, b) => b.date - a.date);
+  let nb = 0;
+  for (const s of liste) { if (s.statut === "A") nb++; else if (s.statut !== "J") break; }
+  return { nb, derniere: liste[0]?.date ?? 0 };
+}
+
+/** Élèves à signaler : au moins N absences de suite, alerte pas encore traitée. */
+export function alertesAbsences(d: Donnees): { eleve: Eleve; nb: number }[] {
+  const seuil = Math.max(1, d.reglages.seuilAbsences);
+  return d.eleves
+    .map((e) => ({ eleve: e, ...absencesConsecutives(d, e) }))
+    .filter((x) => x.nb >= seuil && x.derniere > (x.eleve.alerteAbsenceVue ?? 0))
+    .map(({ eleve, nb }) => ({ eleve, nb }));
+}

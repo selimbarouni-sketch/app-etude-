@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { BellRing, Download, FileText, Hourglass, MessageCircle, MessageSquare, Share2, Wallet } from "lucide-react";
-import { actions, groupeDuPaiement, useDonnees } from "../store";
+import { actions, destinataires, groupeDuPaiement, prixSeance, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
 import { MODES_PAIEMENT, estAujourdhui, formatDate, formatMontant, initiales, libelleCycle, lienSms, lienWhatsapp, lireNombre, remplirModele } from "../utils";
@@ -14,8 +14,8 @@ const memeNom = (a: string, b: string) => a.trim().toLowerCase() === b.trim().to
  */
 export default function Paiements() {
   const d = useDonnees();
-  const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
-  const prixSeance = tarifForfait / Math.max(1, limite);
+  const { devise, seancesParPaiement: limite } = d.reglages;
+  const prix = (e: Eleve) => prixSeance(d, e);
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
   const [aModifier, setAModifier] = useState<Paiement | null>(null);
@@ -38,16 +38,12 @@ export default function Paiements() {
         .sort((a, b) => b.date - a.date)
     : [];
   const aEncaisser = groupe ? groupe.eleves.filter((e) => e.sessionsInCurrentCycle >= limite) : [];
-  const montantDu = aEncaisser.reduce((s, e) => s + e.sessionsInCurrentCycle * prixSeance, 0);
+  const montantDu = aEncaisser.reduce((s, e) => s + e.sessionsInCurrentCycle * prix(e), 0);
   const ceMois = paiementsGroupe.filter((p) => estEncaisse(p) && p.date >= debutMois.getTime()).reduce((s, p) => s + p.montant, 0);
 
-  const relancer = (e: Eleve, canal: "wa" | "sms") => {
-    const msg = remplirModele(d.reglages.smsTemplatePaiement, {
-      prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prixSeance), devise, seances: String(e.sessionsInCurrentCycle),
-    });
-    actions.noterRappel(e.id);
-    window.open(canal === "wa" ? lienWhatsapp(e.telephone, msg) : lienSms(e.telephone, msg), "_blank");
-  };
+  const messageRelance = (e: Eleve) => remplirModele(d.reglages.smsTemplatePaiement, {
+    prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prix(e)), devise, seances: String(e.sessionsInCurrentCycle),
+  });
 
   if (!d.eleves.length) return (<><div className="topbar"><h1>Paiements</h1></div><Vide icone={<Wallet size={48} />} texte="Ajoutez d'abord des élèves." /></>);
 
@@ -100,7 +96,7 @@ export default function Paiements() {
                               : <span className={`badge ${doit ? "red" : dues > 0 ? "orange" : "green"}`}>{libelleCycle(dues, limite)}</span>}
                           </div>
                           <div className="small muted">
-                            {doit ? <>{dues} séances à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prixSeance)} {devise}</b></>
+                            {doit ? <>{dues} séances à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prix(e))} {devise}</b></>
                               : dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} faite{dues > 1 ? "s" : ""} · rappel de paiement à {limite}</>
                               : dues < 0 ? <>Crédit : {-dues} séance(s) payée(s) d'avance</> : <>À jour</>}
                           </div>
@@ -113,10 +109,13 @@ export default function Paiements() {
                       <div className="row wrap" style={{ gap: 6 }}>
                         {/* Paiement libre : l'élève peut régler 3, 5… séances quand il le souhaite */}
                         <button className={`btn small ${doit ? "success" : "secondary"}`} onClick={() => setPayer(e)}><Wallet size={15} />Encaisser</button>
-                        {doit && e.telephone.trim() && <>
-                            <button className="btn secondary small" onClick={() => relancer(e, "wa")}><MessageCircle size={15} />Relance WhatsApp</button>
-                            <button className="btn secondary small" onClick={() => relancer(e, "sms")}><MessageSquare size={15} />SMS</button>
-                        </>}
+                        {doit && destinataires(e).map((x) => (
+                          <a key={x.telephone} className="btn secondary small" href={lienWhatsapp(x.telephone, messageRelance(e))} target="_blank" rel="noreferrer"
+                            onClick={() => actions.noterRappel(e.id)}><MessageCircle size={15} />Relance {x.libelle.toLowerCase()}</a>
+                        ))}
+                        {doit && destinataires(e)[0] && (
+                          <a className="btn secondary small" href={lienSms(destinataires(e)[0].telephone, messageRelance(e))} onClick={() => actions.noterRappel(e.id)}><MessageSquare size={15} />SMS</a>
+                        )}
                       </div>
                     </div>
                   );
@@ -175,8 +174,7 @@ export default function Paiements() {
 /** Relances de paiement à envoyer (affiché sur l'accueil). */
 export function RelancesPaiement({ eleves }: { eleves: Eleve[] }) {
   const d = useDonnees();
-  const { devise, seancesParPaiement: limite, tarifForfait } = d.reglages;
-  const prixSeance = tarifForfait / Math.max(1, limite);
+  const { devise, seancesParPaiement: limite } = d.reglages;
   if (!eleves.length) return null;
   return (
     <div className="card pad stack" style={{ gap: 8 }}>
@@ -184,13 +182,16 @@ export function RelancesPaiement({ eleves }: { eleves: Eleve[] }) {
       <div className="tiny muted">Élèves à {limite} séances ou plus, pas encore relancés (ou relancés il y a plus de {d.reglages.relanceJours} jours).</div>
       {eleves.map((e) => {
         const msg = remplirModele(d.reglages.smsTemplatePaiement, {
-          prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prixSeance), devise, seances: String(e.sessionsInCurrentCycle),
+          prenom: e.prenom, nom: e.nom, classe: e.classe, montant: formatMontant(e.sessionsInCurrentCycle * prixSeance(d, e)), devise, seances: String(e.sessionsInCurrentCycle),
         });
+        const dest = destinataires(e);
         return (
           <div key={e.id} className="row wrap" style={{ gap: 6 }}>
             <div className="grow small"><b>{e.prenom} {e.nom}</b> <span className="muted">· {e.groupe || SANS_GROUPE} · {e.sessionsInCurrentCycle} séances</span></div>
-            <a className="btn success small" href={lienWhatsapp(e.telephone, msg)} target="_blank" rel="noreferrer" onClick={() => actions.noterRappel(e.id)}><MessageCircle size={14} />WhatsApp</a>
-            <a className="btn secondary small" href={lienSms(e.telephone, msg)} onClick={() => actions.noterRappel(e.id)}><MessageSquare size={14} />SMS</a>
+            {dest.map((x) => (
+              <a key={x.telephone} className="btn success small" href={lienWhatsapp(x.telephone, msg)} target="_blank" rel="noreferrer" onClick={() => actions.noterRappel(e.id)}><MessageCircle size={14} />{dest.length > 1 ? x.libelle : "WhatsApp"}</a>
+            ))}
+            {dest[0] && <a className="btn secondary small" href={lienSms(dest[0].telephone, msg)} onClick={() => actions.noterRappel(e.id)}><MessageSquare size={14} />SMS</a>}
           </div>
         );
       })}
@@ -202,12 +203,12 @@ export function RelancesPaiement({ eleves }: { eleves: Eleve[] }) {
 function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve: Eleve | null; paiement?: Paiement; onClose: () => void; onSupprimer?: () => void; onCree?: (p: Paiement) => void }) {
   const d = useDonnees();
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
-  const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
+  const prixUnitaire = eleve ? prixSeance(d, eleve) : tarifForfait / Math.max(1, seancesParPaiement);
   // Par défaut : on règle toutes les séances faites → le compteur repart de 0
   // Par défaut : les séances faites non payées (sinon un forfait) ; modifiable librement (3, 5…)
   const nbInitial = paiement?.nbSeancesReglees ?? ((eleve?.sessionsInCurrentCycle ?? 0) > 0 ? eleve!.sessionsInCurrentCycle : seancesParPaiement);
   const [nb, setNb] = useState(nbInitial);
-  const [montant, setMontant] = useState(String(paiement?.montant ?? Math.round(prixSeance * nbInitial * 100) / 100));
+  const [montant, setMontant] = useState(String(paiement?.montant ?? Math.round(prixUnitaire * nbInitial * 100) / 100));
   const [montantModifie, setMontantModifie] = useState(!!paiement);
   const [mode, setMode] = useState(paiement?.modePaiement ?? MODES_PAIEMENT[0]);
   const [obs, setObs] = useState(paiement?.observation ?? "");
@@ -221,7 +222,7 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
   const changerNb = (n: number) => {
     const v = Math.min(99, Math.max(minimum, Math.round(n)));
     setNb(v);
-    if (!montantModifie) setMontant(String(Math.round(prixSeance * v * 100) / 100));
+    if (!montantModifie) setMontant(String(Math.round(prixUnitaire * v * 100) / 100));
   };
   const nom = paiement?.nomEleve ?? `${eleve?.prenom} ${eleve?.nom}`;
 
@@ -233,7 +234,7 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
         {onSupprimer && <button className="btn ghost" style={{ color: "var(--red)", marginRight: "auto" }} onClick={onSupprimer}>Annuler le versement</button>}
         <button className="btn secondary" onClick={onClose}>Fermer</button>
         <button className="btn success" onClick={() => {
-          const m = lireNombre(montant, prixSeance * nb);
+          const m = lireNombre(montant, prixUnitaire * nb);
           if (paiement) {
             actions.modifierPaiement({ ...paiement, montant: m, modePaiement: mode, nbSeancesReglees: nb, observation: obs.trim(), encaisse });
             toast("Versement modifié");
@@ -262,7 +263,7 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
         {reste === 0 && <>Séances faites non payées : <b>{dues}</b> → tout est réglé, le compteur repart de <b>0</b>.</>}
         {reste < 0 && <>Séances faites non payées : <b>{Math.max(0, dues)}</b> → crédit de <b>{-reste}</b> séance(s) payée(s) d'avance.</>}
       </div></div>
-      <Field label={`Montant (${devise}) — ${formatMontant(prixSeance)} ${devise} par séance`}>
+      <Field label={`Montant (${devise}) — ${formatMontant(prixUnitaire)} ${devise} par séance`}>
         <input className="input" inputMode="decimal" value={montant} onChange={(e) => { setMontant(e.target.value); setMontantModifie(true); }} />
       </Field>
       <Field label="Mode de paiement">
@@ -307,7 +308,8 @@ function EnvoiRecu({ paiementId, onClose }: { paiementId: string; onClose: () =>
     } else {
       // Ordinateur : on télécharge le PDF puis on ouvre WhatsApp avec le message (joindre le fichier téléchargé)
       await telecharger();
-      if (eleve?.telephone) window.open(lienWhatsapp(eleve.telephone, texte), "_blank");
+      const dest = eleve ? destinataires(eleve)[0] : undefined;
+      if (dest) window.open(lienWhatsapp(dest.telephone, texte), "_blank");
       toast("Reçu téléchargé : joignez-le dans la conversation WhatsApp");
     }
   };

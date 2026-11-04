@@ -3,23 +3,25 @@ import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock } from "lucide-
 import { actions, appelDuJour, etatAppel, prochainesSeances, seancesDuJour, useDonnees } from "../store";
 import type { Statut } from "../types";
 import { DemandeCode, Vide, toast } from "../components";
-import { notifierPaiementsAttendus } from "../notifier";
+import Semaine from "./Semaine";
+import { notifierAbsences, notifierPaiementsAttendus } from "../notifier";
 import { dureeEntre, formatDate, formatDateLongue, formatDuree, formatJourCourt, heureDe } from "../utils";
 
-const LIBELLES: Record<Statut, string> = { P: "Présent", A: "Absent", R: "Retard" };
-const COULEURS: Record<Statut, string> = { P: "green", A: "red", R: "orange" };
+const LIBELLES: Record<Statut, string> = { P: "Présent", A: "Absent", R: "Retard", J: "Absence justifiée" };
+const COULEURS: Record<Statut, string> = { P: "green", A: "red", R: "orange", J: "blue" };
 
 export default function Seances() {
-  const [onglet, setOnglet] = useState<"appel" | "historique">("appel");
+  const [onglet, setOnglet] = useState<"appel" | "semaine" | "historique">("appel");
   const d = useDonnees();
   return (
     <>
       <div className="topbar"><h1>Séances & présences</h1></div>
       <div className="tabs">
         <button className={onglet === "appel" ? "on" : ""} onClick={() => setOnglet("appel")}>Appel du jour</button>
+        <button className={onglet === "semaine" ? "on" : ""} onClick={() => setOnglet("semaine")}>Semaine</button>
         <button className={onglet === "historique" ? "on" : ""} onClick={() => setOnglet("historique")}>Historique ({d.seances.length})</button>
       </div>
-      {onglet === "appel" ? <Appel /> : <Historique />}
+      {onglet === "appel" ? <Appel /> : onglet === "semaine" ? <Semaine /> : <Historique />}
     </>
   );
 }
@@ -151,7 +153,9 @@ function Appel() {
               <span className="badge green">P : {nb("P")}</span>
               <span className="badge red">A : {nb("A")}</span>
               <span className="badge orange">R : {nb("R")}</span>
+              <span className="badge blue">J : {nb("J")}</span>
             </div>
+            <div className="tiny muted">P présent · A absent · R retard · J absence justifiée (non comptée)</div>
             <div className="list">
               {eleves.map((e) => (
                 <div key={e.id} className="card item">
@@ -160,7 +164,7 @@ function Appel() {
                     <div className="small muted ellipsis">{e.classe}</div>
                   </div>
                   <div className="statut-group">
-                    {(["P", "A", "R"] as Statut[]).map((s) => (
+                    {(["P", "A", "R", "J"] as Statut[]).map((s) => (
                       <button key={s} title={LIBELLES[s]} className={`statut-btn ${s} ${st(e.id) === s ? "on" : ""}`}
                         onClick={() => setStatuts({ ...statuts, [e.id]: s })}>{s}</button>
                     ))}
@@ -177,6 +181,7 @@ function Appel() {
               setStatuts({});
               toast("Appel enregistré et verrouillé");
               notifierPaiementsAttendus(atteints, d.reglages.seancesParPaiement);
+              notifierAbsences();
             }}>
               <CheckCircle2 size={19} />Valider l'appel ({eleves.length} élève{eleves.length > 1 ? "s" : ""})
             </button>

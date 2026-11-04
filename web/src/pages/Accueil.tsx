@@ -1,9 +1,10 @@
+import { marque } from "../marque";
 import { AlertTriangle, CalendarDays, ClipboardCheck, GraduationCap, UserPlus, Users, Wallet } from "lucide-react";
 import type { Page } from "../App";
-import { appelDuJour, elevesPaiementEnAttente, prochainesSeances, relancesAFaire, seancesDuJour, useDonnees } from "../store";
+import { alertesAbsences, appelDuJour, elevesPaiementEnAttente, prochainesSeances, relancesAFaire, seancesDuJour, useDonnees } from "../store";
 import { RelancesPaiement } from "./Paiements";
+import { AlertesAbsences } from "./Absences";
 import { BoutonInstaller, estInstallee } from "../installation";
-import { CONFIG } from "../config";
 import { useState } from "react";
 import { estAujourdhui, formatDateLongue, formatJourCourt } from "../utils";
 
@@ -37,9 +38,9 @@ export default function Accueil({ aller, ajouterEleve, ouvrirGroupe }: { aller: 
 
       {bandeauInstall && (
         <div className="card bandeau-installation">
-          <img src="/icon-192.png" alt="" />
+          <img src={marque().logo} alt="" />
           <div className="grow">
-            <div className="bold">Installez {CONFIG.nomApp} sur votre téléphone</div>
+            <div className="bold">Installez {marque().nom} sur votre téléphone</div>
             <div className="small muted">Une icône sur l'écran d'accueil, en plein écran, même hors connexion.</div>
           </div>
           <BoutonInstaller libelle="Installer" />
@@ -69,6 +70,7 @@ export default function Accueil({ aller, ajouterEleve, ouvrirGroupe }: { aller: 
         </div>
       )}
 
+      {alertesAbsences(d).length > 0 && <div style={{ marginTop: 16 }}><AlertesAbsences /></div>}
       {relancesAFaire(d).length > 0 && <div style={{ marginTop: 16 }}><RelancesPaiement eleves={relancesAFaire(d)} /></div>}
 
       <div className="section-title">
