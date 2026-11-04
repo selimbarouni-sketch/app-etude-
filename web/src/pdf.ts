@@ -4,7 +4,7 @@ import { CONFIG } from "./config";
 import type { Donnees, Eleve, Paiement } from "./types";
 import { formatDate, formatDuree, formatMontant } from "./utils";
 
-const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard" };
+const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard", J: "Absence justifiée" };
 
 /** Rapport PDF d'un élève (toutes les séances et tous les paiements, sur plusieurs pages si besoin). */
 export function rapportEleve(d: Donnees, e: Eleve) {

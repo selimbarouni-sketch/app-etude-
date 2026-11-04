@@ -1,4 +1,5 @@
-export type Statut = "P" | "A" | "R";
+/** P présent, A absent, R retard, J absence justifiée (jamais comptée) */
+export type Statut = "P" | "A" | "R" | "J";
 
 export interface Eleve {
   id: string;
@@ -14,6 +15,14 @@ export interface Eleve {
   totalSeancesRealisees: number;
   /** Date du dernier rappel de paiement envoyé (WhatsApp/SMS) */
   dernierRappel?: number;
+  nomParent?: string;
+  telephoneParent?: string;
+  /** À qui envoyer les messages (rappels, reçus, annulations) */
+  contactMessages?: "eleve" | "parent" | "les_deux";
+  /** Réduction en % sur le tarif du groupe (ex. frères et sœurs) */
+  remise?: number;
+  /** Alerte d'absences déjà traitée jusqu'à cette date */
+  alerteAbsenceVue?: number;
 }
 
 /** Séance d'un groupe annulée ou reportée (par rapport à son créneau hebdomadaire). */
@@ -38,6 +47,16 @@ export interface Groupe {
   remarque: string;
   prochaineSeance: number;
   exceptions?: ExceptionSeance[];
+  /** Tarif d'une séance pour ce groupe (sinon tarif général) */
+  tarifSeance?: number;
+}
+
+/** Période sans cours (vacances, jour férié) : toutes les séances sont annulées. */
+export interface Vacances {
+  id: string;
+  debut: number; // minuit du premier jour
+  fin: number; // minuit du dernier jour
+  motif: string;
 }
 
 export interface RendezVous {
@@ -108,6 +127,11 @@ export interface Reglages {
   smsTemplatePaiement: string;
   /** Relancer un élève qui n'a pas payé tous les N jours */
   relanceJours: number;
+  /** Les absences non justifiées sont dues (comptées comme séances) */
+  absencesComptees: boolean;
+  /** Alerte après N absences de suite */
+  seuilAbsences: number;
+  smsTemplateAbsence: string;
 }
 
 export interface Donnees {
@@ -119,5 +143,6 @@ export interface Donnees {
   paiements: Paiement[];
   dossiers: Dossier[];
   notes: Note[];
+  vacances: Vacances[];
   reglages: Reglages;
 }

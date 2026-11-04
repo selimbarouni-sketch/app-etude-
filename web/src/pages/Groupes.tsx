@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CalendarX, ChevronRight, Clock, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
-import { actions, chevauchementCreneau, chevauchementLe, finApres, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
+import { Wallet, ArrowLeft, CalendarX, ChevronRight, Clock, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
+import { actions, destinataires, chevauchementCreneau, chevauchementLe, finApres, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
 import { FicheEleve, FormEleve } from "./Eleves";
 import MessageWhatsApp from "./MessageWhatsApp";
 import type { Eleve, Groupe } from "../types";
@@ -171,12 +171,12 @@ function ListeEleves({ eleves, limite, onFiche }: { eleves: Eleve[]; limite: num
             <div className="avatar">{initiales(e.prenom, e.nom)}</div>
             <div className="grow">
               <div className="bold ellipsis">{e.prenom} {e.nom}</div>
-              <div className="small muted ellipsis">{[e.classe, e.telephone].filter(Boolean).join(" · ")}</div>
+              <div className="small muted ellipsis">{[e.classe, e.telephone, e.telephoneParent && `parent ${e.telephoneParent}`].filter(Boolean).join(" · ")}</div>
             </div>
             <span className={`badge ${e.sessionsInCurrentCycle >= limite ? "red" : "green"}`}>{libelleCycle(e.sessionsInCurrentCycle, limite)}</span>
             <div className="row" onClick={(ev) => ev.stopPropagation()} style={{ gap: 0 }}>
-              <a className="icon-btn" href={lienTel(e.telephone)} aria-label="Appeler"><Phone size={18} /></a>
-              <a className="icon-btn" href={lienWhatsapp(e.telephone, msg)} target="_blank" rel="noreferrer" aria-label="WhatsApp" style={{ color: "var(--green)" }}><MessageCircle size={18} /></a>
+              {(e.telephone || e.telephoneParent) && <a className="icon-btn" href={lienTel(e.telephone || e.telephoneParent!)} aria-label="Appeler"><Phone size={18} /></a>}
+              {destinataires(e)[0] && <a className="icon-btn" href={lienWhatsapp(destinataires(e)[0].telephone, msg)} target="_blank" rel="noreferrer" aria-label="WhatsApp" style={{ color: "var(--green)" }}><MessageCircle size={18} /></a>}
             </div>
           </div>
         );
@@ -215,6 +215,7 @@ function DetailGroupe({ groupe, eleves, onRetour, onFiche, onAjouterEleve, onAjo
         <div className="small row wrap" style={{ gap: 12 }}>
           <span className="row" style={{ gap: 4 }}><Clock size={14} />Chaque {groupe.jourSemaine.toLowerCase()} · {groupe.heureDebut}–{groupe.heureFin}</span>
           {groupe.lieu && <span className="row" style={{ gap: 4 }}><MapPin size={14} />{groupe.lieu}</span>}
+          <span className="row" style={{ gap: 4 }}><Wallet size={14} />{(groupe.tarifSeance ?? d.reglages.tarifForfait / Math.max(1, d.reglages.seancesParPaiement)).toLocaleString("fr-FR")} {d.reglages.devise} / séance</span>
         </div>
         {prochaines.length > 0 && (
           <div className="small">Prochaines séances : {prochaines.map((p) => `${formatJourCourt(p.debut)} ${p.heureDebut}${p.reportDe ? " (reportée)" : ""}`).join(" · ")}</div>
@@ -348,6 +349,8 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
   const [debut, setDebut] = useState(groupe?.heureDebut ?? "14:00");
   const [fin, setFin] = useState(groupe?.heureFin ?? "16:00");
   const [lieu, setLieu] = useState(groupe?.lieu ?? "Salle principale");
+  const tarifGeneral = d.reglages.tarifForfait / Math.max(1, d.reglages.seancesParPaiement);
+  const [tarif, setTarif] = useState(groupe?.tarifSeance !== undefined ? String(groupe.tarifSeance) : "");
   const doublon = d.groupes.some((g) => g.id !== groupe?.id && memeNom(g.nom, nom));
   const horairesInvalides = !debut || !fin || fin <= debut;
   const conflit = horairesInvalides ? null : chevauchementCreneau(d, { jourSemaine: jour, heureDebut: debut, heureFin: fin }, groupe?.id);
@@ -355,7 +358,8 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
 
   const enregistrer = () => {
     if (!valide) return;
-    const infos = { nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim() };
+    const t = parseFloat(tarif.replace(",", "."));
+    const infos = { nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim(), tarifSeance: Number.isFinite(t) && t > 0 ? t : undefined };
     if (groupe) {
       actions.modifierGroupe({ ...groupe, ...infos });
       toast("Groupe modifié");
@@ -392,13 +396,16 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
       {conflit && (
         <div className="alert red small"><div>Ce créneau chevauche le groupe <b>{conflit.nom}</b> ({conflit.jourSemaine} {conflit.heureDebut}–{conflit.heureFin}). Choisissez un autre jour ou d'autres horaires.</div></div>
       )}
-      <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
+      <div className="fields-2">
+        <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
+        <Field label={`Tarif / séance (${d.reglages.devise})`}><input className="input" inputMode="decimal" value={tarif} onChange={(e) => setTarif(e.target.value)} placeholder={`${tarifGeneral} (général)`} /></Field>
+      </div>
     </Modal>
   );
 }
 
-type Ligne = { prenom: string; nom: string; telephone: string; classe: string };
-const ligneVide = (classe = ""): Ligne => ({ prenom: "", nom: "", telephone: "", classe });
+type Ligne = { prenom: string; nom: string; telephone: string; classe: string; telephoneParent: string };
+const ligneVide = (classe = ""): Ligne => ({ prenom: "", nom: "", telephone: "", classe, telephoneParent: "" });
 
 /** Ajout d'un ou plusieurs élèves à un groupe : élèves existants et/ou nouveaux élèves. */
 export function AjoutEleves({ groupe, onClose }: { groupe: Groupe; onClose: () => void }) {
@@ -429,6 +436,8 @@ export function AjoutEleves({ groupe, onClose }: { groupe: Groupe; onClose: () =
       actions.ajouterEleves(lignesValides.map((l) => ({
         prenom: l.prenom.trim(), nom: l.nom.trim(), telephone: l.telephone.trim(), classe: l.classe.trim(),
         groupe: groupe.nom, anniversaire: "", observation: "",
+        telephoneParent: l.telephoneParent.trim() || undefined,
+        contactMessages: l.telephoneParent.trim() ? "parent" : "eleve",
       })));
     }
     toast(`${total} élève${total > 1 ? "s" : ""} ajouté${total > 1 ? "s" : ""} à ${groupe.nom}`);
@@ -494,6 +503,7 @@ export function AjoutEleves({ groupe, onClose }: { groupe: Groupe; onClose: () =
                 <input className="input" placeholder="Nom *" value={l.nom} onChange={(e) => majLigne(i, "nom", e.target.value)} />
                 <input className="input" placeholder="Téléphone" type="tel" inputMode="tel" value={l.telephone} onChange={(e) => majLigne(i, "telephone", e.target.value)} />
                 <input className="input" placeholder="Classe" value={l.classe} onChange={(e) => majLigne(i, "classe", e.target.value)} />
+                <input className="input" placeholder="Téléphone du parent" type="tel" inputMode="tel" value={l.telephoneParent} onChange={(e) => majLigne(i, "telephoneParent", e.target.value)} style={{ gridColumn: "1 / -1" }} />
               </div>
             </div>
           ))}

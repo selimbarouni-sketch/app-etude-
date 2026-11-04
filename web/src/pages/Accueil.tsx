@@ -1,7 +1,8 @@
 import { AlertTriangle, CalendarDays, ClipboardCheck, GraduationCap, UserPlus, Users, Wallet } from "lucide-react";
 import type { Page } from "../App";
-import { appelDuJour, elevesPaiementEnAttente, prochainesSeances, relancesAFaire, seancesDuJour, useDonnees } from "../store";
+import { alertesAbsences, appelDuJour, elevesPaiementEnAttente, prochainesSeances, relancesAFaire, seancesDuJour, useDonnees } from "../store";
 import { RelancesPaiement } from "./Paiements";
+import { AlertesAbsences } from "./Absences";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { CONFIG } from "../config";
 import { useState } from "react";
@@ -69,6 +70,7 @@ export default function Accueil({ aller, ajouterEleve, ouvrirGroupe }: { aller: 
         </div>
       )}
 
+      {alertesAbsences(d).length > 0 && <div style={{ marginTop: 16 }}><AlertesAbsences /></div>}
       {relancesAFaire(d).length > 0 && <div style={{ marginTop: 16 }}><RelancesPaiement eleves={relancesAFaire(d)} /></div>}
 
       <div className="section-title">

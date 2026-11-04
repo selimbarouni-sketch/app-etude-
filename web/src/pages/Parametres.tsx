@@ -6,6 +6,7 @@ import { Confirmation, Field, Modal, toast } from "../components";
 import { CONFIG } from "../config";
 import MessageWhatsApp from "./MessageWhatsApp";
 import SectionSynchro from "./Synchro";
+import SectionVacances from "./Vacances";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
 import { formatDate, formatDuree, formatMontant, lireNombre, telecharger, versCsv } from "../utils";
@@ -16,6 +17,7 @@ export default function Parametres() {
   const [tarif, setTarif] = useState({ seances: String(r.seancesParPaiement), forfait: String(r.tarifForfait), duree: String(r.dureeParDefautHeures), devise: r.devise });
   const [modeles, setModeles] = useState({ rappel: r.smsTemplateRappel, paiement: r.smsTemplatePaiement });
   const [relance, setRelance] = useState(String(r.relanceJours));
+  const [absenceModele, setAbsenceModele] = useState(r.smsTemplateAbsence);
   const [pdf, setPdf] = useState(false);
   const [whatsapp, setWhatsapp] = useState(false);
   const [importer, setImporter] = useState<string | null>(null);
@@ -23,13 +25,14 @@ export default function Parametres() {
   const fichier = useRef<HTMLInputElement>(null);
 
   const jour = new Date().toISOString().slice(0, 10);
-  const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard" };
+  const STATUT: Record<string, string> = { P: "Présent", A: "Absent", R: "Retard", J: "Absence justifiée" };
 
   return (
     <>
       <div className="topbar"><h1>Paramètres & outils</h1></div>
       <div className="stack">
         <SectionSynchro />
+        <SectionVacances />
         <section className="card pad stack">
           <div className="row bold"><Moon size={18} />Apparence</div>
           <div className="small muted">Style</div>
@@ -82,6 +85,7 @@ export default function Parametres() {
 
         <section className="card pad stack">
           <div className="bold">Cours & forfait</div>
+          <div className="tiny muted">Tarif général. Chaque groupe peut avoir son propre tarif par séance (modifier le groupe), et chaque élève une réduction (fiche élève).</div>
           <div className="fields-2">
             <Field label="Séances avant paiement"><input className="input" inputMode="numeric" value={tarif.seances} onChange={(e) => setTarif({ ...tarif, seances: e.target.value })} /></Field>
             <Field label={`Montant du forfait (${tarif.devise || "TND"})`}><input className="input" inputMode="decimal" value={tarif.forfait} onChange={(e) => setTarif({ ...tarif, forfait: e.target.value })} /></Field>
@@ -109,6 +113,22 @@ export default function Parametres() {
             <input className="input" inputMode="numeric" value={relance} onChange={(e) => setRelance(e.target.value.replace(/\D/g, ""))} />
           </Field>
           <button className="btn" onClick={() => { actions.enregistrerReglages({ smsTemplateRappel: modeles.rappel, smsTemplatePaiement: modeles.paiement, relanceJours: Math.max(1, parseInt(relance, 10) || 3) }); toast("Modèles enregistrés"); }}><Save size={18} />Enregistrer les modèles</button>
+        </section>
+
+        <section className="card pad stack">
+          <div className="bold">Absences</div>
+          <label className="row small" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={r.absencesComptees} style={{ width: 18, height: 18 }} onChange={(e) => actions.enregistrerReglages({ absencesComptees: e.target.checked })} />
+            <span className="grow">Les absences <b>non justifiées</b> sont dues (comptées comme séances à payer). Les absences justifiées (J) ne sont jamais comptées.</span>
+          </label>
+          <Field label="Alerte après combien d'absences de suite ?">
+            <div className="chips">
+              {[2, 3, 4].map((n) => <button key={n} type="button" className={`chip ${r.seuilAbsences === n ? "on" : ""}`} onClick={() => actions.enregistrerReglages({ seuilAbsences: n })}>{n} absences</button>)}
+            </div>
+          </Field>
+          <Field label="Message au parent"><textarea className="input" value={absenceModele} onChange={(e) => setAbsenceModele(e.target.value)} /></Field>
+          <div className="tiny muted">Mots-clés : {"{prenom} {nom} {classe} {groupe} {nb}"}</div>
+          <button className="btn secondary" onClick={() => { actions.enregistrerReglages({ smsTemplateAbsence: absenceModele }); toast("Message enregistré"); }}><Save size={18} />Enregistrer le message</button>
         </section>
 
         <section className="card pad stack">

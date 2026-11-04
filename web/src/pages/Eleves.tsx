@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent } from "react";
 import { MessageCircle, MessageSquare, Pencil, Phone, Share2, Trash2 } from "lucide-react";
-import { actions, heureProchainCours, useDonnees } from "../store";
+import { actions, destinataires, heureProchainCours, prixSeance, useDonnees } from "../store";
 import type { Eleve, Groupe } from "../types";
 import { DemandeCode, Field, Modal, toast } from "../components";
 import { formatDate, initiales, lienSms, lienTel, lienWhatsapp, remplirModele } from "../utils";
@@ -37,7 +37,10 @@ export function FicheEleve({ eleveId, onClose }: { eleveId: string; onClose: () 
         </div>
       </div>
       <div className="card pad stack" style={{ gap: 4, boxShadow: "none" }}>
-        <div>📞 {e.telephone}</div>
+        {e.telephone && <div>📞 Élève : {e.telephone}</div>}
+        {e.telephoneParent && <div>👪 {e.nomParent || "Parent"} : {e.telephoneParent}</div>}
+        <div className="small muted">Messages envoyés à : {destinataires(e).map((x) => x.libelle).join(" et ") || "—"}</div>
+        <div>Tarif : <b>{prixSeance(d, e).toLocaleString("fr-FR")} {d.reglages.devise}</b> / séance{e.remise ? ` (réduction ${e.remise} %)` : ""}</div>
         {e.anniversaire && <div>🎂 Anniversaire : {e.anniversaire}</div>}
         <div>{e.sessionsInCurrentCycle < 0 ? <>Séances payées d'avance : <b>{-e.sessionsInCurrentCycle}</b></> : <>Séances à payer : <b>{e.sessionsInCurrentCycle} / {limite}</b></>}</div>
         <div>Total séances : <b>{e.totalSeancesRealisees}</b></div>
@@ -45,9 +48,11 @@ export function FicheEleve({ eleveId, onClose }: { eleveId: string; onClose: () 
         {e.observation && <div className="muted small">Observation : {e.observation}</div>}
       </div>
       <div className="fields-2">
-        <a className="btn secondary" href={lienTel(e.telephone)}><Phone size={17} />Appeler</a>
-        <a className="btn secondary" href={lienSms(e.telephone, message)}><MessageSquare size={17} />SMS</a>
-        <a className="btn secondary" href={lienWhatsapp(e.telephone, message)} target="_blank" rel="noreferrer"><MessageCircle size={17} />WhatsApp</a>
+        {e.telephone && <a className="btn secondary" href={lienTel(e.telephone)}><Phone size={17} />Appeler</a>}
+        {destinataires(e)[0] && <a className="btn secondary" href={lienSms(destinataires(e)[0].telephone, message)}><MessageSquare size={17} />SMS</a>}
+        {e.telephone && <a className="btn secondary" href={lienWhatsapp(e.telephone, message)} target="_blank" rel="noreferrer"><MessageCircle size={17} />WhatsApp élève</a>}
+        {e.telephoneParent && <a className="btn secondary" href={lienWhatsapp(e.telephoneParent, message)} target="_blank" rel="noreferrer"><MessageCircle size={17} />WhatsApp parent</a>}
+        {e.telephoneParent && <a className="btn secondary" href={lienTel(e.telephoneParent)}><Phone size={17} />Appeler parent</a>}
         <button className="btn secondary" onClick={() => partagerContact(e)}><Share2 size={17} />Partager</button>
         <button className="btn secondary" onClick={() => setEdition(true)}><Pencil size={17} />Modifier</button>
         <button className="btn secondary" style={{ color: "var(--red)" }} onClick={() => setSupprimer(true)}><Trash2 size={17} />Supprimer</button>
@@ -57,7 +62,7 @@ export function FicheEleve({ eleveId, onClose }: { eleveId: string; onClose: () 
 }
 
 function partagerContact(e: Eleve) {
-  const texte = `Contact élève :\n${e.prenom} ${e.nom}\nClasse : ${e.classe}\nTél : ${e.telephone}`;
+  const texte = `Contact élève :\n${e.prenom} ${e.nom}\nClasse : ${e.classe}\nTél : ${e.telephone}${e.telephoneParent ? `\nParent : ${e.nomParent ?? ""} ${e.telephoneParent}` : ""}`;
   if (navigator.share) navigator.share({ text: texte }).catch(() => {});
   else navigator.clipboard.writeText(texte).then(() => toast("Contact copié dans le presse-papier"));
 }
@@ -71,15 +76,22 @@ export function FormEleve({ eleve, groupes, groupeParDefaut, onClose }: { eleve:
     groupe: eleve?.groupe ?? groupeParDefaut ?? groupes[0]?.nom ?? "",
     anniversaire: eleve?.anniversaire ?? "",
     observation: eleve?.observation ?? "",
+    nomParent: eleve?.nomParent ?? "",
+    telephoneParent: eleve?.telephoneParent ?? "",
   });
+  const [contact, setContact] = useState<NonNullable<Eleve["contactMessages"]>>(eleve?.contactMessages ?? (eleve?.telephoneParent ? "parent" : "eleve"));
+  const [remise, setRemise] = useState(String(eleve?.remise ?? ""));
   const set = (k: keyof typeof f) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
-  const valide = [f.nom, f.prenom, f.telephone, f.classe, f.groupe].every((v) => v.trim());
+  // Au moins un numéro (élève ou parent) pour pouvoir le contacter
+  const valide = [f.nom, f.prenom, f.groupe].every((v) => v.trim()) && !!(f.telephone.trim() || f.telephoneParent.trim());
 
   const enregistrer = () => {
     if (!valide) return;
     const propre = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.trim()])) as typeof f;
-    if (eleve) actions.modifierEleve({ ...eleve, ...propre });
-    else actions.ajouterEleve(propre);
+    const r = Math.min(100, Math.max(0, parseFloat(remise.replace(",", ".")) || 0));
+    const complet = { ...propre, contactMessages: contact, remise: r || undefined };
+    if (eleve) actions.modifierEleve({ ...eleve, ...complet });
+    else actions.ajouterEleve(complet);
     toast(eleve ? "Élève modifié" : "Élève ajouté");
     onClose();
   };
@@ -95,8 +107,8 @@ export function FormEleve({ eleve, groupes, groupeParDefaut, onClose }: { eleve:
         <Field label="Nom *"><input className="input" value={f.nom} onChange={set("nom")} /></Field>
       </div>
       <div className="fields-2">
-        <Field label="Téléphone *"><input className="input" type="tel" inputMode="tel" value={f.telephone} onChange={set("telephone")} /></Field>
-        <Field label="Classe *"><input className="input" placeholder="ex. Bac Math, 3ème" value={f.classe} onChange={set("classe")} /></Field>
+        <Field label="Téléphone de l'élève"><input className="input" type="tel" inputMode="tel" value={f.telephone} onChange={set("telephone")} /></Field>
+        <Field label="Classe"><input className="input" placeholder="ex. Bac Math, 3ème" value={f.classe} onChange={set("classe")} /></Field>
       </div>
       <Field label="Groupe *">
         <input className="input" value={f.groupe} onChange={set("groupe")} placeholder="Choisir ci-dessous" />
@@ -108,6 +120,19 @@ export function FormEleve({ eleve, groupes, groupeParDefaut, onClose }: { eleve:
           ))}
         </div>
       )}
+      <div className="fields-2">
+        <Field label="Nom du parent"><input className="input" value={f.nomParent} onChange={set("nomParent")} placeholder="ex. Mme Ben Ali" /></Field>
+        <Field label="Téléphone du parent"><input className="input" type="tel" inputMode="tel" value={f.telephoneParent} onChange={set("telephoneParent")} /></Field>
+      </div>
+      <Field label="Envoyer les messages (rappels, reçus, annulations) à">
+        <div className="chips">
+          {([["eleve", "L'élève"], ["parent", "Le parent"], ["les_deux", "Les deux"]] as const).map(([v, l]) => (
+            <button key={v} type="button" className={`chip ${contact === v ? "on" : ""}`} onClick={() => setContact(v)}>{l}</button>
+          ))}
+        </div>
+      </Field>
+      {!f.telephone.trim() && !f.telephoneParent.trim() && <div className="tiny" style={{ color: "var(--red)" }}>Indiquez au moins un numéro (élève ou parent).</div>}
+      <Field label="Réduction sur le tarif (%) — ex. frères et sœurs"><input className="input" inputMode="decimal" value={remise} onChange={(e) => setRemise(e.target.value)} placeholder="0" /></Field>
       <Field label="Anniversaire (jj/mm)"><input className="input" value={f.anniversaire} onChange={set("anniversaire")} placeholder="Facultatif" /></Field>
       <Field label="Observation"><textarea className="input" value={f.observation} onChange={set("observation")} /></Field>
     </Modal>
