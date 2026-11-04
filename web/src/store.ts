@@ -441,3 +441,24 @@ export function etatAppel(s: SeanceProgrammee, now = Date.now()): { ouvert: bool
   const ouverture = s.debut - 30 * 60_000;
   return { ouvert: now >= ouverture, ouverture, debut: s.debut };
 }
+
+// ---------- Chevauchements de séances ----------
+const enMinutes = (h: string) => { const [a, b] = h.split(":").map(Number); return (a || 0) * 60 + (b || 0); };
+const seChevauchent = (d1: string, f1: string, d2: string, f2: string) => enMinutes(d1) < enMinutes(f2) && enMinutes(d2) < enMinutes(f1);
+
+/** Autre groupe dont le créneau hebdomadaire chevauche celui-ci (même jour, horaires qui se croisent). */
+export function chevauchementCreneau(d: Donnees, c: { jourSemaine: string; heureDebut: string; heureFin: string }, exclureId?: string): Groupe | null {
+  return d.groupes.find((g) => g.id !== exclureId
+    && g.jourSemaine.toLowerCase() === c.jourSemaine.toLowerCase()
+    && seChevauchent(c.heureDebut, c.heureFin, g.heureDebut, g.heureFin)) ?? null;
+}
+
+/** Séance déjà programmée ce jour-là qui chevaucherait un nouveau créneau (report). */
+export function chevauchementLe(d: Donnees, jour: number, heureDebut: string, heureFin: string, groupeId: string, origine: number): SeanceProgrammee | null {
+  return seancesDuJour(d, jour).find((s) => !s.annulee
+    && !(s.groupe.id === groupeId && (s.reportDe === origine || s.jour === origine))
+    && seChevauchent(heureDebut, heureFin, s.heureDebut, s.heureFin)) ?? null;
+}
+
+/** Heure de fin d'une séance reportée (même durée que le créneau du groupe). */
+export const finApres = (g: Groupe, heureDebut: string) => ajouterMinutes(heureDebut, dureeMinutes(g));

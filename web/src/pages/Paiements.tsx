@@ -101,7 +101,7 @@ export default function Paiements() {
                           </div>
                           <div className="small muted">
                             {doit ? <>{dues} séances à payer · <b style={{ color: "var(--text)" }}>{formatMontant(dues * prixSeance)} {devise}</b></>
-                              : dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} faite{dues > 1 ? "s" : ""} · encaissement à {limite}</>
+                              : dues > 0 ? <>{dues} séance{dues > 1 ? "s" : ""} faite{dues > 1 ? "s" : ""} · rappel de paiement à {limite}</>
                               : dues < 0 ? <>Crédit : {-dues} séance(s) payée(s) d'avance</> : <>À jour</>}
                           </div>
                           <div className="tiny muted">
@@ -110,15 +110,14 @@ export default function Paiements() {
                           </div>
                         </div>
                       </div>
-                      {doit && (
-                        <div className="row wrap" style={{ gap: 6 }}>
-                          <button className="btn success small" onClick={() => setPayer(e)}><Wallet size={15} />Encaisser</button>
-                          {e.telephone.trim() && <>
+                      <div className="row wrap" style={{ gap: 6 }}>
+                        {/* Paiement libre : l'élève peut régler 3, 5… séances quand il le souhaite */}
+                        <button className={`btn small ${doit ? "success" : "secondary"}`} onClick={() => setPayer(e)}><Wallet size={15} />Encaisser</button>
+                        {doit && e.telephone.trim() && <>
                             <button className="btn secondary small" onClick={() => relancer(e, "wa")}><MessageCircle size={15} />Relance WhatsApp</button>
                             <button className="btn secondary small" onClick={() => relancer(e, "sms")}><MessageSquare size={15} />SMS</button>
-                          </>}
-                        </div>
-                      )}
+                        </>}
+                      </div>
                     </div>
                   );
                 })}
@@ -205,7 +204,8 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
   const { seancesParPaiement, tarifForfait, devise } = d.reglages;
   const prixSeance = tarifForfait / Math.max(1, seancesParPaiement);
   // Par défaut : on règle toutes les séances faites → le compteur repart de 0
-  const nbInitial = paiement?.nbSeancesReglees ?? Math.max(seancesParPaiement, eleve?.sessionsInCurrentCycle ?? 0);
+  // Par défaut : les séances faites non payées (sinon un forfait) ; modifiable librement (3, 5…)
+  const nbInitial = paiement?.nbSeancesReglees ?? ((eleve?.sessionsInCurrentCycle ?? 0) > 0 ? eleve!.sessionsInCurrentCycle : seancesParPaiement);
   const [nb, setNb] = useState(nbInitial);
   const [montant, setMontant] = useState(String(paiement?.montant ?? Math.round(prixSeance * nbInitial * 100) / 100));
   const [montantModifie, setMontantModifie] = useState(!!paiement);
@@ -216,8 +216,8 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
   // Séances faites non payées avant ce versement
   const dues = (eleve?.sessionsInCurrentCycle ?? 0) + (paiement?.nbSeancesReglees ?? 0);
   const reste = dues - nb;
-  // L'encaissement se fait par forfait : au moins le nombre de séances du forfait (ex. 4)
-  const minimum = paiement ? 1 : seancesParPaiement;
+  // Paiement libre : de 1 séance à 99
+  const minimum = 1;
   const changerNb = (n: number) => {
     const v = Math.min(99, Math.max(minimum, Math.round(n)));
     setNb(v);
@@ -252,8 +252,8 @@ function FormPaiement({ eleve, paiement, onClose, onSupprimer, onCree }: { eleve
           <input className="input" style={{ width: 70, textAlign: "center", fontWeight: 700 }} inputMode="numeric" value={nb}
             onChange={(e) => changerNb(lireNombre(e.target.value, nb))} />
           <button className="btn secondary" type="button" onClick={() => changerNb(nb + 1)} aria-label="Plus">+</button>
-          {Array.from(new Set([...(dues >= seancesParPaiement ? [dues] : []), seancesParPaiement, seancesParPaiement * 2])).map((n) => (
-            <button key={n} type="button" className={`chip ${nb === n ? "on" : ""}`} onClick={() => changerNb(n)}>{n} séances</button>
+          {Array.from(new Set([...(dues > 0 ? [dues] : []), 1, 2, 3, 4, 5, 6, 8, seancesParPaiement])).sort((a, b) => a - b).map((n) => (
+            <button key={n} type="button" className={`chip ${nb === n ? "on" : ""}`} onClick={() => changerNb(n)}>{n} séance{n > 1 ? "s" : ""}</button>
           ))}
         </div>
       </Field>

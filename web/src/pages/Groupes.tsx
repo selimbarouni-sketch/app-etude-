@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CalendarX, ChevronRight, Clock, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
-import { actions, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
+import { actions, chevauchementCreneau, chevauchementLe, finApres, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
 import { FicheEleve, FormEleve } from "./Eleves";
 import MessageWhatsApp from "./MessageWhatsApp";
 import type { Eleve, Groupe } from "../types";
@@ -128,6 +128,7 @@ export default function Groupes({ groupeInitial, ajoutEleve, finAjout }: { group
                 <div className="row wrap small" style={{ gap: 6 }}>
                   {prochaine && <span className="badge blue">Prochaine : {formatJourCourt(prochaine.debut)} {prochaine.heureDebut}{prochaine.reportDe ? " (reportée)" : ""}</span>}
                   {aPayer > 0 && <span className="badge red">{aPayer} à payer</span>}
+                  {chevauchementCreneau(d, g, g.id) && <span className="badge orange">⚠ chevauche {chevauchementCreneau(d, g, g.id)!.nom}</span>}
                 </div>
               </button>
             );
@@ -287,7 +288,11 @@ function AnnulerReporter({ groupe, onClose, onFait }: { groupe: Groupe; onClose:
   const [heure, setHeure] = useState(groupe.heureDebut);
   const [motif, setMotif] = useState("");
   const seance = seances.find((s) => s.jour === choix);
-  const valide = seance && (type === "annulee" || (jour && heure));
+  const finReport = heure ? finApres(groupe, heure) : "";
+  const conflitReport = seance && type === "reportee" && jour && heure
+    ? chevauchementLe(d, depuisInputDate(jour), heure, finReport, groupe.id, seance.jour)
+    : null;
+  const valide = seance && (type === "annulee" || (jour && heure && !conflitReport));
 
   const valider = () => {
     if (!seance) return;
@@ -326,6 +331,9 @@ function AnnulerReporter({ groupe, onClose, onFait }: { groupe: Groupe; onClose:
           <Field label="Nouvelle heure"><input className="input" type="time" value={heure} onChange={(e) => setHeure(e.target.value)} /></Field>
         </div>
       )}
+      {conflitReport && (
+        <div className="alert red small"><div>Impossible : ce jour-là, le groupe <b>{conflitReport.groupe.nom}</b> a cours de {conflitReport.heureDebut} à {conflitReport.heureFin}. La séance reportée ({heure}–{finReport}) le chevaucherait.</div></div>
+      )}
       <Field label="Motif (facultatif, envoyé aux élèves)"><input className="input" value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. jour férié, examen…" /></Field>
       <div className="tiny muted">Ensuite, un message WhatsApp prêt à envoyer à chaque élève du groupe vous sera proposé.</div>
     </Modal>
@@ -341,7 +349,9 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
   const [fin, setFin] = useState(groupe?.heureFin ?? "16:00");
   const [lieu, setLieu] = useState(groupe?.lieu ?? "Salle principale");
   const doublon = d.groupes.some((g) => g.id !== groupe?.id && memeNom(g.nom, nom));
-  const valide = nom.trim() && !doublon;
+  const horairesInvalides = !debut || !fin || fin <= debut;
+  const conflit = horairesInvalides ? null : chevauchementCreneau(d, { jourSemaine: jour, heureDebut: debut, heureFin: fin }, groupe?.id);
+  const valide = nom.trim() && !doublon && !horairesInvalides && !conflit;
 
   const enregistrer = () => {
     if (!valide) return;
@@ -378,6 +388,10 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
         <Field label="Début"><input className="input" type="time" value={debut} onChange={(e) => setDebut(e.target.value)} /></Field>
         <Field label="Fin"><input className="input" type="time" value={fin} onChange={(e) => setFin(e.target.value)} /></Field>
       </div>
+      {horairesInvalides && <div className="tiny" style={{ color: "var(--red)" }}>L'heure de fin doit être après l'heure de début.</div>}
+      {conflit && (
+        <div className="alert red small"><div>Ce créneau chevauche le groupe <b>{conflit.nom}</b> ({conflit.jourSemaine} {conflit.heureDebut}–{conflit.heureFin}). Choisissez un autre jour ou d'autres horaires.</div></div>
+      )}
       <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
     </Modal>
   );
