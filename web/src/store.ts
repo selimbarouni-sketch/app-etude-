@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { CONFIG } from "./config";
-import type { Donnees, Eleve, ExceptionSeance, Groupe, Note, Paiement, Reglages, Seance, Statut, Vacances } from "./types";
+import type { Attente, Donnees, EntreeCahier, Eleve, Evaluation, ExceptionSeance, Groupe, Note, Paiement, Rattrapage, Reglages, Seance, Statut, Vacances } from "./types";
 import { debutDuJour, jourSemaine, uid } from "./utils";
 
 /**
@@ -35,6 +35,9 @@ function donneesInitiales(): Donnees {
     dossiers: [],
     notes: [],
     vacances: [],
+    evaluations: [],
+    cahier: [],
+    rattrapages: [],
     reglages: { ...REGLAGES_DEFAUT },
   };
 }
@@ -51,6 +54,9 @@ function normaliser(d: Partial<Donnees>): Donnees {
     dossiers: d.dossiers ?? [],
     notes: d.notes ?? [],
     vacances: d.vacances ?? [],
+    evaluations: d.evaluations ?? [],
+    cahier: d.cahier ?? [],
+    rattrapages: d.rattrapages ?? [],
     reglages: { ...REGLAGES_DEFAUT, ...(d.reglages ?? {}) },
   };
 }
@@ -192,6 +198,94 @@ export const actions = {
   traiterAlerteAbsence(eleveId: string) {
     maj((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === eleveId ? { ...e, alerteAbsenceVue: Date.now() } : e)) }));
   },
+  // ---------- Suivi pédagogique ----------
+  enregistrerEvaluation(e: Omit<Evaluation, "id"> & { id?: string }) {
+    maj((d) => e.id
+      ? { ...d, evaluations: d.evaluations.map((x) => (x.id === e.id ? { ...x, ...e, id: x.id } : x)) }
+      : { ...d, evaluations: [...d.evaluations, { ...e, id: uid() }] });
+  },
+  supprimerEvaluation(id: string) {
+    maj((d) => ({ ...d, evaluations: d.evaluations.filter((x) => x.id !== id) }));
+  },
+  enregistrerCahier(c: Omit<EntreeCahier, "id"> & { id?: string }) {
+    maj((d) => {
+      // une entrée par groupe et par jour
+      const existe = c.id ? d.cahier.find((x) => x.id === c.id) : d.cahier.find((x) => x.groupe === c.groupe && debutDuJour(x.date) === debutDuJour(c.date));
+      if (existe) return { ...d, cahier: d.cahier.map((x) => (x.id === existe.id ? { ...x, ...c, id: x.id } : x)) };
+      return { ...d, cahier: [...d.cahier, { ...c, id: uid() }] };
+    });
+  },
+  supprimerCahier(id: string) {
+    maj((d) => ({ ...d, cahier: d.cahier.filter((x) => x.id !== id) }));
+  },
+
+  // ---------- Rattrapages ----------
+  ajouterRattrapage(r: Omit<Rattrapage, "id" | "statut">) {
+    maj((d) => ({ ...d, rattrapages: [...d.rattrapages, { ...r, id: uid() }] }));
+  },
+  supprimerRattrapage(id: string) {
+    maj((d) => ({ ...d, rattrapages: d.rattrapages.filter((x) => x.id !== id || x.statut) }));
+  },
+  /** Appel du rattrapage : enregistre la séance dans l'historique (et le compteur si elle est comptée). */
+  validerRattrapage(id: string, statut: Statut): Eleve[] {
+    const r = etat.rattrapages.find((x) => x.id === id);
+    const e = r && etat.eleves.find((x) => x.id === r.eleveId);
+    if (!r || !e || r.statut) return [];
+    const compteePaiement = r.comptee && compte(statut);
+    const limite = etat.reglages.seancesParPaiement;
+    const atteint = compteePaiement && e.sessionsInCurrentCycle < limite && e.sessionsInCurrentCycle + 1 >= limite;
+    const [a, b] = r.heureDebut.split(":").map(Number); const [c, f] = r.heureFin.split(":").map(Number);
+    maj((d) => ({
+      ...d,
+      rattrapages: d.rattrapages.map((x) => (x.id === id ? { ...x, statut } : x)),
+      seances: [{ id: uid(), eleveId: e.id, date: r.debut, heure: r.heureDebut, dureeHeures: Math.max(0.5, ((c * 60 + f) - (a * 60 + b)) / 60),
+        statut, commentaire: `Rattrapage${r.motif ? ` : ${r.motif}` : ""}${r.comptee ? "" : " (non compté)"}`, nomEleve: `${e.prenom} ${e.nom}`, groupe: "Rattrapage" }, ...d.seances],
+      eleves: compteePaiement
+        ? d.eleves.map((x) => (x.id === e.id ? { ...x, sessionsInCurrentCycle: x.sessionsInCurrentCycle + 1, totalSeancesRealisees: x.totalSeancesRealisees + 1 } : x))
+        : d.eleves,
+    }));
+    return atteint ? [e] : [];
+  },
+
+  // ---------- Capacité & liste d'attente ----------
+  ajouterAttente(groupeId: string, a: Omit<Attente, "id" | "date">) {
+    maj((d) => ({ ...d, groupes: d.groupes.map((g) => (g.id === groupeId ? { ...g, listeAttente: [...(g.listeAttente ?? []), { ...a, id: uid(), date: Date.now() }] } : g)) }));
+  },
+  retirerAttente(groupeId: string, attenteId: string) {
+    maj((d) => ({ ...d, groupes: d.groupes.map((g) => (g.id === groupeId ? { ...g, listeAttente: (g.listeAttente ?? []).filter((x) => x.id !== attenteId) } : g)) }));
+  },
+  /** Inscrit un élève de la liste d'attente dans le groupe. */
+  inscrireDepuisAttente(groupeId: string, attenteId: string) {
+    const g = etat.groupes.find((x) => x.id === groupeId);
+    const a = g?.listeAttente?.find((x) => x.id === attenteId);
+    if (!g || !a) return;
+    maj((d) => ({
+      ...d,
+      groupes: d.groupes.map((x) => (x.id === groupeId ? { ...x, listeAttente: (x.listeAttente ?? []).filter((y) => y.id !== attenteId) } : x)),
+      eleves: [...d.eleves, { id: uid(), prenom: a.prenom, nom: a.nom, telephone: a.telephone, telephoneParent: a.telephoneParent, contactMessages: a.telephoneParent ? "parent" : "eleve",
+        classe: "", groupe: g.nom, anniversaire: "", observation: "", dateInscription: Date.now(), sessionsInCurrentCycle: 0, totalSeancesRealisees: 0 }],
+    }));
+  },
+
+  // ---------- Espace parents ----------
+  definirLienParent(eleveId: string, jeton: string | undefined) {
+    maj((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === eleveId ? { ...e, lienParent: jeton } : e)) }));
+  },
+
+  // ---------- Nouvelle année scolaire ----------
+  /** Repart à zéro : historique, paiements, notes, cahier… effacés ; groupes et élèves conservés. */
+  nouvelleAnnee(options: { garderSoldes: boolean; garderEleves: boolean }) {
+    maj((d) => ({
+      ...d,
+      seances: [], paiements: [], evaluations: [], cahier: [], rattrapages: [], vacances: [],
+      groupes: d.groupes.map((g) => ({ ...g, exceptions: [], prochaineSeance: 0 })),
+      eleves: options.garderEleves
+        ? d.eleves.map((e) => ({ ...e, sessionsInCurrentCycle: options.garderSoldes ? e.sessionsInCurrentCycle : 0, totalSeancesRealisees: 0,
+            dernierRappel: undefined, alerteAbsenceVue: undefined }))
+        : [],
+    }));
+  },
+
   /** Place des élèves existants dans un groupe (un élève n'appartient qu'à un groupe). */
   affecterEleves(nomGroupe: string, ids: string[]) {
     const set = new Set(ids);
@@ -523,4 +617,27 @@ export function alertesAbsences(d: Donnees): { eleve: Eleve; nb: number }[] {
     .map((e) => ({ eleve: e, ...absencesConsecutives(d, e) }))
     .filter((x) => x.nb >= seuil && x.derniere > (x.eleve.alerteAbsenceVue ?? 0))
     .map(({ eleve, nb }) => ({ eleve, nb }));
+}
+
+// ---------- Rattrapages ----------
+export function rattrapagesDuJour(d: Donnees, jour = Date.now()): Rattrapage[] {
+  const j = debutDuJour(jour);
+  return d.rattrapages.filter((r) => debutDuJour(r.debut) === j).sort((a, b) => a.debut - b.debut);
+}
+
+/** Groupe ou rattrapage qui occupe déjà ce créneau ce jour-là. */
+export function creneauOccupe(d: Donnees, jour: number, heureDebut: string, heureFin: string, exclureRattrapage?: string): string | null {
+  const s = seancesDuJour(d, jour).find((x) => !x.annulee && seChevauchent(heureDebut, heureFin, x.heureDebut, x.heureFin));
+  if (s) return `le groupe ${s.groupe.nom} (${s.heureDebut}–${s.heureFin})`;
+  const r = rattrapagesDuJour(d, jour).find((x) => x.id !== exclureRattrapage && seChevauchent(heureDebut, heureFin, x.heureDebut, x.heureFin));
+  if (r) { const e = d.eleves.find((x) => x.id === r.eleveId); return `le rattrapage de ${e ? e.prenom : "un élève"} (${r.heureDebut}–${r.heureFin})`; }
+  return null;
+}
+
+// ---------- Capacité ----------
+export function placesDuGroupe(d: Donnees, g: Groupe): { inscrits: number; capacite?: number; restantes: number; complet: boolean } {
+  const inscrits = d.eleves.filter((e) => e.groupe.trim().toLowerCase() === g.nom.trim().toLowerCase()).length;
+  const capacite = g.capacite && g.capacite > 0 ? g.capacite : undefined;
+  const restantes = capacite ? Math.max(0, capacite - inscrits) : Infinity;
+  return { inscrits, capacite, restantes, complet: capacite !== undefined && inscrits >= capacite };
 }

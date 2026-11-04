@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Wallet, ArrowLeft, CalendarX, ChevronRight, Clock, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Trash2, UserMinus, UserPlus, Users, X } from "lucide-react";
-import { actions, destinataires, chevauchementCreneau, chevauchementLe, finApres, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
+import { actions, destinataires, placesDuGroupe, chevauchementCreneau, chevauchementLe, finApres, heureProchainCours, prochainesSeances, seancesAVenirDuGroupe, useDonnees } from "../store";
 import { FicheEleve, FormEleve } from "./Eleves";
 import MessageWhatsApp from "./MessageWhatsApp";
+import { CahierGroupe, EvaluationsGroupe } from "./Pedagogie";
 import type { Eleve, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
 import { JOURS, debutDuJour, depuisInputDate, formatDateLongue, formatJourCourt, initiales, libelleCycle, lienTel, lienWhatsapp, remplirModele, versInputDate } from "../utils";
@@ -128,6 +129,8 @@ export default function Groupes({ groupeInitial, ajoutEleve, finAjout }: { group
                 <div className="row wrap small" style={{ gap: 6 }}>
                   {prochaine && <span className="badge blue">Prochaine : {formatJourCourt(prochaine.debut)} {prochaine.heureDebut}{prochaine.reportDe ? " (reportée)" : ""}</span>}
                   {aPayer > 0 && <span className="badge red">{aPayer} à payer</span>}
+                  {(() => { const pl = placesDuGroupe(d, g); return pl.capacite ? <span className={`badge ${pl.complet ? "orange" : ""}`}>{pl.complet ? "Complet" : "Places"} {pl.inscrits}/{pl.capacite}</span> : null; })()}
+                  {(g.listeAttente?.length ?? 0) > 0 && <span className="badge">{g.listeAttente!.length} en attente</span>}
                   {chevauchementCreneau(d, g, g.id) && <span className="badge orange">⚠ chevauche {chevauchementCreneau(d, g, g.id)!.nom}</span>}
                 </div>
               </button>
@@ -197,6 +200,8 @@ function DetailGroupe({ groupe, eleves, onRetour, onFiche, onAjouterEleve, onAjo
   const [whatsapp, setWhatsapp] = useState<string | null>(null); // message pré-rempli
   const [modifSeance, setModifSeance] = useState(false);
   const [retirer, setRetirer] = useState(false);
+  const [onglet, setOnglet] = useState<"eleves" | "cahier" | "notes">("eleves");
+  const places = placesDuGroupe(d, groupe);
 
   const filtres = eleves.filter((e) => !q || [e.nom, e.prenom, e.classe].some((v) => v.toLowerCase().includes(q.toLowerCase())));
   const prochaines = prochainesSeances(d, Date.now(), groupe.id, 3);
@@ -238,18 +243,49 @@ function DetailGroupe({ groupe, eleves, onRetour, onFiche, onAjouterEleve, onAjo
         </div>
       </div>
 
-      <div className="row" style={{ marginBottom: 8 }}>
-        <div className="bold grow">Élèves ({eleves.length})</div>
-        <button className="btn ghost small" onClick={onAjouterEleve}><Plus size={15} />Un élève</button>
-        {eleves.length > 0 && <button className="btn ghost small" onClick={() => setRetirer(true)}><UserMinus size={15} />Retirer</button>}
+      <div className="tabs">
+        <button className={onglet === "eleves" ? "on" : ""} onClick={() => setOnglet("eleves")}>Élèves ({eleves.length}{places.capacite ? `/${places.capacite}` : ""})</button>
+        <button className={onglet === "cahier" ? "on" : ""} onClick={() => setOnglet("cahier")}>Cahier de texte</button>
+        <button className={onglet === "notes" ? "on" : ""} onClick={() => setOnglet("notes")}>Évaluations</button>
       </div>
-      {eleves.length > 5 && (
-        <div className="search" style={{ marginBottom: 10 }}>
-          <Search size={18} />
-          <input className="input" placeholder={`Rechercher dans ${groupe.nom}…`} value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
+
+      {onglet === "cahier" ? <CahierGroupe groupe={groupe} />
+        : onglet === "notes" ? <EvaluationsGroupe groupe={groupe} eleves={eleves} />
+        : (
+        <>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <div className="bold grow">{places.complet ? <span className="badge orange">Complet</span> : places.capacite ? <span className="small muted">{places.restantes} place(s) libre(s)</span> : null}</div>
+            <button className="btn ghost small" disabled={places.complet} onClick={onAjouterEleve}><Plus size={15} />Un élève</button>
+            {eleves.length > 0 && <button className="btn ghost small" onClick={() => setRetirer(true)}><UserMinus size={15} />Retirer</button>}
+          </div>
+          {eleves.length > 5 && (
+            <div className="search" style={{ marginBottom: 10 }}>
+              <Search size={18} />
+              <input className="input" placeholder={`Rechercher dans ${groupe.nom}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+          )}
+          <ListeEleves eleves={filtres} limite={limite} onFiche={onFiche} />
+          {(groupe.listeAttente?.length ?? 0) > 0 && (
+            <div className="card pad stack" style={{ gap: 6, marginTop: 12 }}>
+              <div className="bold small">Liste d'attente ({groupe.listeAttente!.length})</div>
+              {groupe.listeAttente!.map((a, i) => (
+                <div key={a.id} className="row small" style={{ gap: 6 }}>
+                  <span className="badge">{i + 1}</span>
+                  <span className="grow">{a.prenom} {a.nom} <span className="muted">· {a.telephone || a.telephoneParent} · depuis le {formatJourCourt(a.date)}</span></span>
+                  <button className="btn small" disabled={places.complet} title={places.complet ? "Groupe complet" : ""}
+                    onClick={() => { actions.inscrireDepuisAttente(groupe.id, a.id); toast(`${a.prenom} inscrit(e) dans ${groupe.nom}`); }}>Inscrire</button>
+                  {(a.telephoneParent || a.telephone) && (
+                    <a className="icon-btn" aria-label="Prévenir par WhatsApp" style={{ color: "var(--green)" }} target="_blank" rel="noreferrer"
+                      href={lienWhatsapp(a.telephoneParent || a.telephone, `Bonjour, une place s'est libérée dans le groupe ${groupe.nom} (${groupe.jourSemaine} ${groupe.heureDebut}–${groupe.heureFin}). Êtes-vous toujours intéressé(e) ?`)}>
+                      <MessageCircle size={17} /></a>
+                  )}
+                  <button className="icon-btn" aria-label="Retirer de la liste" onClick={() => actions.retirerAttente(groupe.id, a.id)}><X size={16} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
-      <ListeEleves eleves={filtres} limite={limite} onFiche={onFiche} />
 
       {edition && <FormGroupe groupe={groupe} onClose={() => setEdition(false)} />}
       {supprimer && (
@@ -351,6 +387,7 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
   const [lieu, setLieu] = useState(groupe?.lieu ?? "Salle principale");
   const tarifGeneral = d.reglages.tarifForfait / Math.max(1, d.reglages.seancesParPaiement);
   const [tarif, setTarif] = useState(groupe?.tarifSeance !== undefined ? String(groupe.tarifSeance) : "");
+  const [capacite, setCapacite] = useState(groupe?.capacite ? String(groupe.capacite) : "");
   const doublon = d.groupes.some((g) => g.id !== groupe?.id && memeNom(g.nom, nom));
   const horairesInvalides = !debut || !fin || fin <= debut;
   const conflit = horairesInvalides ? null : chevauchementCreneau(d, { jourSemaine: jour, heureDebut: debut, heureFin: fin }, groupe?.id);
@@ -359,7 +396,8 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
   const enregistrer = () => {
     if (!valide) return;
     const t = parseFloat(tarif.replace(",", "."));
-    const infos = { nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim(), tarifSeance: Number.isFinite(t) && t > 0 ? t : undefined };
+    const infos = { nom: nom.trim(), jourSemaine: jour, heureDebut: debut, heureFin: fin, lieu: lieu.trim(), tarifSeance: Number.isFinite(t) && t > 0 ? t : undefined,
+      capacite: parseInt(capacite, 10) > 0 ? parseInt(capacite, 10) : undefined };
     if (groupe) {
       actions.modifierGroupe({ ...groupe, ...infos });
       toast("Groupe modifié");
@@ -400,6 +438,7 @@ export function FormGroupe({ groupe, onClose, onCree }: { groupe?: Groupe; onClo
         <Field label="Lieu"><input className="input" value={lieu} onChange={(e) => setLieu(e.target.value)} /></Field>
         <Field label={`Tarif / séance (${d.reglages.devise})`}><input className="input" inputMode="decimal" value={tarif} onChange={(e) => setTarif(e.target.value)} placeholder={`${tarifGeneral} (général)`} /></Field>
       </div>
+      <Field label="Nombre maximum d'élèves"><input className="input" inputMode="numeric" value={capacite} onChange={(e) => setCapacite(e.target.value.replace(/\D/g, ""))} placeholder="Illimité" /></Field>
     </Modal>
   );
 }
@@ -426,6 +465,8 @@ export function AjoutEleves({ groupe, onClose }: { groupe: Groupe; onClose: () =
   const lignesValides = lignes.filter((l) => l.prenom.trim() && l.nom.trim());
   const lignesIncompletes = lignes.filter((l) => (l.prenom.trim() || l.nom.trim() || l.telephone.trim()) && !(l.prenom.trim() && l.nom.trim()));
   const total = sel.length + lignesValides.length;
+  const places = placesDuGroupe(d, groupe);
+  const depasse = places.capacite !== undefined && total > places.restantes;
 
   const majLigne = (i: number, k: keyof Ligne, v: string) => setLignes(lignes.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
   const basculer = (id: string) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
@@ -444,14 +485,30 @@ export function AjoutEleves({ groupe, onClose }: { groupe: Groupe; onClose: () =
     onClose();
   };
 
+  /** Groupe complet : les nouveaux élèves saisis vont en liste d'attente. */
+  const mettreEnAttente = () => {
+    lignesValides.forEach((l) => actions.ajouterAttente(groupe.id, {
+      prenom: l.prenom.trim(), nom: l.nom.trim(), telephone: l.telephone.trim(), telephoneParent: l.telephoneParent.trim() || undefined,
+    }));
+    toast(`${lignesValides.length} élève(s) en liste d'attente`);
+    onClose();
+  };
+
   return (
     <Modal
       titre={`Ajouter des élèves — ${groupe.nom}`}
       onClose={onClose}
       footer={<><button className="btn secondary" onClick={onClose}>{total ? "Annuler" : "Plus tard"}</button>
-        <button className="btn" disabled={!total || lignesIncompletes.length > 0} onClick={valider}>Ajouter {total || ""} élève{total > 1 ? "s" : ""}</button></>}
+        {depasse && lignesValides.length > 0 && sel.length === 0 && <button className="btn secondary" onClick={mettreEnAttente}>Liste d'attente</button>}
+        <button className="btn" disabled={!total || lignesIncompletes.length > 0 || depasse} onClick={valider}>Ajouter {total || ""} élève{total > 1 ? "s" : ""}</button></>}
     >
       <div className="etapes"><span>1. Le groupe</span><span className="on">2. Les élèves</span></div>
+      {places.capacite !== undefined && (
+        <div className={`alert small ${depasse ? "red" : "blue"}`}><div>
+          {places.inscrits}/{places.capacite} élèves · {places.restantes > 0 ? `${places.restantes} place(s) libre(s)` : "groupe complet"}
+          {depasse && " — trop d'élèves sélectionnés. Les nouveaux élèves peuvent aller en liste d'attente."}
+        </div></div>
+      )}
       <div className="tabs" style={{ marginBottom: 0 }}>
         <button className={onglet === "existants" ? "on" : ""} onClick={() => setOnglet("existants")}>Élèves existants{sel.length ? ` (${sel.length})` : ""}</button>
         <button className={onglet === "nouveaux" ? "on" : ""} onClick={() => setOnglet("nouveaux")}>Nouveaux élèves{lignesValides.length ? ` (${lignesValides.length})` : ""}</button>

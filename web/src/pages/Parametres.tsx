@@ -9,6 +9,7 @@ import MessageWhatsApp from "./MessageWhatsApp";
 import SectionSynchro from "./Synchro";
 import SectionVacances from "./Vacances";
 import SectionPersonnalisation from "./Personnalisation";
+import SectionNouvelleAnnee from "./NouvelleAnnee";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
 import { formatDate, formatDuree, formatMontant, lireNombre, telecharger, versCsv } from "../utils";
@@ -171,6 +172,8 @@ export default function Parametres() {
           }} />
           <button className="btn ghost small" style={{ color: "var(--red)", alignSelf: "flex-start" }} onClick={() => setEffacer(true)}>Effacer toutes les données…</button>
         </section>
+
+        <SectionNouvelleAnnee />
 
         <div className="tiny muted" style={{ textAlign: "center" }}>{marque().nom} · version web</div>
       </div>

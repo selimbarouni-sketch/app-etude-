@@ -23,6 +23,8 @@ export interface Eleve {
   remise?: number;
   /** Alerte d'absences déjà traitée jusqu'à cette date */
   alerteAbsenceVue?: number;
+  /** Jeton du lien « espace parents » (lecture seule) */
+  lienParent?: string;
 }
 
 /** Séance d'un groupe annulée ou reportée (par rapport à son créneau hebdomadaire). */
@@ -49,6 +51,53 @@ export interface Groupe {
   exceptions?: ExceptionSeance[];
   /** Tarif d'une séance pour ce groupe (sinon tarif général) */
   tarifSeance?: number;
+  /** Nombre maximum d'élèves (vide = illimité) */
+  capacite?: number;
+  /** Élèves en attente d'une place */
+  listeAttente?: Attente[];
+}
+
+export interface Attente {
+  id: string;
+  prenom: string;
+  nom: string;
+  telephone: string;
+  telephoneParent?: string;
+  date: number;
+}
+
+/** Évaluation (devoir, contrôle) d'un groupe, avec la note de chaque élève. */
+export interface Evaluation {
+  id: string;
+  groupe: string;
+  date: number;
+  titre: string;
+  sur: number;
+  notes: Record<string, number | null>;
+}
+
+/** Cahier de texte : ce qui a été fait à une séance et les devoirs donnés. */
+export interface EntreeCahier {
+  id: string;
+  groupe: string;
+  date: number;
+  chapitre: string;
+  devoirs: string;
+  pourLe?: number;
+}
+
+/** Séance de rattrapage individuelle. */
+export interface Rattrapage {
+  id: string;
+  eleveId: string;
+  debut: number; // instant de début
+  heureDebut: string;
+  heureFin: string;
+  /** Comptée dans les séances à payer */
+  comptee: boolean;
+  motif: string;
+  /** Rempli une fois l'appel fait */
+  statut?: Statut;
 }
 
 /** Période sans cours (vacances, jour férié) : toutes les séances sont annulées. */
@@ -153,5 +202,8 @@ export interface Donnees {
   dossiers: Dossier[];
   notes: Note[];
   vacances: Vacances[];
+  evaluations: Evaluation[];
+  cahier: EntreeCahier[];
+  rattrapages: Rattrapage[];
   reglages: Reglages;
 }
