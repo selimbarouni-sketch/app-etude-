@@ -1,7 +1,7 @@
+import { marque } from "./marque";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Download, PlusSquare, Share } from "lucide-react";
 import { Modal } from "./components";
-import { CONFIG } from "./config";
 
 /**
  * Installation de l'application sur le téléphone (PWA).
@@ -81,7 +81,7 @@ function AideInstallation({ onClose }: { onClose: () => void }) {
   const integre = estNavigateurIntegre();
   const adresse = window.location.origin;
   return (
-    <Modal titre={`Installer ${CONFIG.nomApp}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>J'ai compris</button>}>
+    <Modal titre={`Installer ${marque().nom}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>J'ai compris</button>}>
       {integre && (
         <div className="alert red small">
           <div>
@@ -96,7 +96,7 @@ function AideInstallation({ onClose }: { onClose: () => void }) {
           <li>Ouvrez cette page dans <b>Safari</b>.</li>
           <li>Touchez le bouton <b>Partager</b> <Share size={16} style={{ verticalAlign: "-3px" }} /> en bas de l'écran.</li>
           <li>Choisissez <b>« Sur l'écran d'accueil »</b> <PlusSquare size={16} style={{ verticalAlign: "-3px" }} />.</li>
-          <li>Touchez <b>Ajouter</b> : l'icône {CONFIG.nomApp} apparaît sur votre écran d'accueil.</li>
+          <li>Touchez <b>Ajouter</b> : l'icône {marque().nom} apparaît sur votre écran d'accueil.</li>
         </ol>
       ) : (
         <ol className="etapes-installation">

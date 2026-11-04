@@ -116,6 +116,14 @@ export interface Note {
 export type Theme = "auto" | "clair" | "sombre";
 export type Style = "classique" | "chic";
 
+/** Personnalisation : nom affiché, sous-titre, couleur principale, logo (image en data URL). */
+export interface Marque {
+  nom?: string;
+  slogan?: string;
+  couleur?: string;
+  logo?: string;
+}
+
 export interface Reglages {
   seancesParPaiement: number;
   tarifForfait: number;
@@ -132,6 +140,7 @@ export interface Reglages {
   /** Alerte après N absences de suite */
   seuilAbsences: number;
   smsTemplateAbsence: string;
+  marque?: Marque;
 }
 
 export interface Donnees {

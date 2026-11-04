@@ -392,3 +392,12 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-
   .creneau { flex: 1 1 140px; }
 }
 .semaine .badge { white-space: normal; max-width: 100%; }
+
+/* ---------- Personnalisation ---------- */
+.apercu-marque { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--radius); color: #fff; }
+.apercu-marque img { width: 48px; height: 48px; border-radius: 12px; background: #fff; object-fit: contain; padding: 3px; flex-shrink: 0; }
+.pastille { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; position: relative; }
+.pastille.on { box-shadow: 0 0 0 3px var(--text); }
+.pastille.autre { display: inline-grid; place-items: center; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); color: #fff; font-weight: 700; text-shadow: 0 0 3px #000; overflow: hidden; }
+.pastille.autre input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.brand img, .mobile-header img { object-fit: contain; }

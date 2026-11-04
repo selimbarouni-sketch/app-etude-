@@ -1,3 +1,4 @@
+import { marque } from "../marque";
 import { useRef, useState } from "react";
 import { Bell, Download, FileText, KeyRound, Lock, MessageCircle, Moon, Save, Sheet, Upload } from "lucide-react";
 import { actions, useDonnees } from "../store";
@@ -7,6 +8,7 @@ import { CONFIG } from "../config";
 import MessageWhatsApp from "./MessageWhatsApp";
 import SectionSynchro from "./Synchro";
 import SectionVacances from "./Vacances";
+import SectionPersonnalisation from "./Personnalisation";
 import { BoutonInstaller, estInstallee } from "../installation";
 import { activerCode, changerCode, codeActif, codeParDefaut, codeValide, verifierCode } from "../securite";
 import { formatDate, formatDuree, formatMontant, lireNombre, telecharger, versCsv } from "../utils";
@@ -33,6 +35,7 @@ export default function Parametres() {
       <div className="stack">
         <SectionSynchro />
         <SectionVacances />
+        <SectionPersonnalisation />
         <section className="card pad stack">
           <div className="row bold"><Moon size={18} />Apparence</div>
           <div className="small muted">Style</div>
@@ -56,10 +59,10 @@ export default function Parametres() {
         <section className="card pad stack">
           <div className="bold">Application sur le téléphone</div>
           {estInstallee() ? (
-            <div className="small muted">✅ {CONFIG.nomApp} est installée sur cet appareil.</div>
+            <div className="small muted">✅ {marque().nom} est installée sur cet appareil.</div>
           ) : (
             <>
-              <div className="small muted">Ajoutez {CONFIG.nomApp} à l'écran d'accueil de votre smartphone : elle s'ouvrira en plein écran, comme une application.</div>
+              <div className="small muted">Ajoutez {marque().nom} à l'écran d'accueil de votre smartphone : elle s'ouvrira en plein écran, comme une application.</div>
               <BoutonInstaller className="btn" />
             </>
           )}
@@ -169,7 +172,7 @@ export default function Parametres() {
           <button className="btn ghost small" style={{ color: "var(--red)", alignSelf: "flex-start" }} onClick={() => setEffacer(true)}>Effacer toutes les données…</button>
         </section>
 
-        <div className="tiny muted" style={{ textAlign: "center" }}>{CONFIG.nomApp} · version web</div>
+        <div className="tiny muted" style={{ textAlign: "center" }}>{marque().nom} · version web</div>
       </div>
 
       {pdf && <ChoixEleve titre="Rapport PDF" action="Générer le PDF" onClose={() => setPdf(false)} onChoix={async (ids) => {

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Delete, Lock } from "lucide-react";
-import { CONFIG } from "./config";
+import { marque } from "./marque";
 import { codeParDefaut, verifierCode } from "./securite";
 
 export default function Verrouillage({ onDeverrouille }: { onDeverrouille: () => void }) {
+  const m = marque();
   const [code, setCode] = useState("");
   const [erreur, setErreur] = useState(false);
 
@@ -38,8 +39,8 @@ export default function Verrouillage({ onDeverrouille }: { onDeverrouille: () =>
 
   return (
     <div className="verrou">
-      <img src="/icon-192.png" alt="" className="verrou-logo" />
-      <h1 className="verrou-titre">{CONFIG.nomApp}</h1>
+      <img src={m.logo} alt="" className="verrou-logo" />
+      <h1 className="verrou-titre">{m.nom}</h1>
       <div className="row muted small" style={{ gap: 6 }}><Lock size={15} />Saisissez votre code d'accès</div>
       <div className={`verrou-points ${erreur ? "erreur" : ""}`}>
         {Array.from({ length: Math.max(4, code.length) }).map((_, i) => <span key={i} className={i < code.length ? "plein" : ""} />)}
