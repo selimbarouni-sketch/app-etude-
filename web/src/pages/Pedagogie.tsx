@@ -3,7 +3,7 @@ import { BookOpen, ClipboardPen, Pencil, Plus, Trash2 } from "lucide-react";
 import { actions, useDonnees } from "../store";
 import type { Eleve, EntreeCahier, Evaluation, Groupe } from "../types";
 import { Confirmation, Field, Modal, Vide, toast } from "../components";
-import { depuisInputDate, formatDate, formatJourCourt, lireNombre, versInputDate } from "../utils";
+import { debutDuJour, depuisInputDate, formatDate, formatJourCourt, lireNombre, versInputDate } from "../utils";
 
 const fmtNote = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
@@ -20,34 +20,63 @@ export function moyenneEvaluation(ev: Evaluation): number | null {
 }
 
 // ---------- Cahier de texte ----------
+/** Entrée du cahier de texte d'un groupe pour un jour donné. */
+export const cahierDuJour = (cahier: EntreeCahier[], groupe: string, jour: number) =>
+  cahier.find((c) => c.groupe === groupe && debutDuJour(c.date) === debutDuJour(jour));
+
+/**
+ * Cahier de texte du groupe : une ligne par séance faite (appel enregistré), avec sa description brève
+ * et les devoirs. Les séances sans description sont signalées.
+ */
 export function CahierGroupe({ groupe }: { groupe: Groupe }) {
   const d = useDonnees();
-  const [edition, setEdition] = useState<EntreeCahier | "nouveau" | null>(null);
-  const entrees = d.cahier.filter((c) => c.groupe === groupe.nom).sort((a, b) => b.date - a.date);
+  const [edition, setEdition] = useState<{ entree: EntreeCahier | null; jour?: number } | null>(null);
+
+  const lignes = (() => {
+    const jours = new Map<number, { jour: number; heure: string; presents: number; total: number }>();
+    d.seances.filter((s) => s.groupe === groupe.nom).forEach((s) => {
+      const j = debutDuJour(s.date);
+      const x = jours.get(j) ?? { jour: j, heure: s.heure, presents: 0, total: 0 };
+      x.total++; if (s.statut === "P" || s.statut === "R") x.presents++;
+      jours.set(j, x);
+    });
+    // entrées saisies pour un jour sans appel (ex. ajoutées à la main)
+    d.cahier.filter((c) => c.groupe === groupe.nom).forEach((c) => {
+      const j = debutDuJour(c.date);
+      if (!jours.has(j)) jours.set(j, { jour: j, heure: "", presents: 0, total: 0 });
+    });
+    return Array.from(jours.values()).sort((a, b) => b.jour - a.jour).map((x) => ({ ...x, entree: cahierDuJour(d.cahier, groupe.nom, x.jour) }));
+  })();
+  const sansDescription = lignes.filter((l) => l.total > 0 && !l.entree?.chapitre).length;
+
   return (
     <div className="stack">
       <div className="row">
-        <div className="small muted grow">Ce qui a été fait à chaque séance et les devoirs donnés (aussi saisissables pendant l'appel).</div>
-        <button className="btn small" onClick={() => setEdition("nouveau")}><Plus size={15} />Ajouter</button>
+        <div className="small muted grow">Une description brève de chaque séance et les devoirs donnés (saisissables aussi pendant l'appel).</div>
+        <button className="btn small" onClick={() => setEdition({ entree: null })}><Plus size={15} />Ajouter</button>
       </div>
-      {entrees.length === 0 ? <Vide icone={<BookOpen size={40} />} texte="Cahier de texte vide." /> : entrees.map((c) => (
-        <div key={c.id} className="card pad stack" style={{ gap: 4 }}>
+      {sansDescription > 0 && <div className="alert blue small"><div>{sansDescription} séance{sansDescription > 1 ? "s" : ""} sans description : touchez « Décrire » pour compléter.</div></div>}
+      {lignes.length === 0 ? <Vide icone={<BookOpen size={40} />} texte="Aucune séance pour le moment." /> : lignes.map((l) => (
+        <div key={l.jour} className="card pad stack" style={{ gap: 4 }}>
           <div className="row">
-            <span className="badge blue">{formatJourCourt(c.date)}</span>
+            <span className="badge blue">{formatJourCourt(l.jour)}{l.heure && ` · ${l.heure}`}</span>
+            {l.total > 0 && <span className="tiny muted">{l.presents}/{l.total} présent{l.presents > 1 ? "s" : ""}</span>}
             <span className="grow" />
-            <button className="icon-btn" aria-label="Modifier" onClick={() => setEdition(c)}><Pencil size={15} /></button>
+            <button className="btn ghost small" onClick={() => setEdition({ entree: l.entree ?? null, jour: l.jour })}>
+              {l.entree ? <><Pencil size={14} />Modifier</> : <><Plus size={14} />Décrire</>}
+            </button>
           </div>
-          {c.chapitre && <div><b>Fait en séance :</b> {c.chapitre}</div>}
-          {c.devoirs && <div className="small"><b>Devoirs{c.pourLe ? ` pour le ${formatJourCourt(c.pourLe)}` : ""} :</b> {c.devoirs}</div>}
+          {l.entree?.chapitre ? <div>{l.entree.chapitre}</div> : <div className="small muted">Pas encore de description.</div>}
+          {l.entree?.devoirs && <div className="small"><b>Devoirs{l.entree.pourLe ? ` pour le ${formatJourCourt(l.entree.pourLe)}` : ""} :</b> {l.entree.devoirs}</div>}
         </div>
       ))}
-      {edition && <FormCahier groupe={groupe} entree={edition === "nouveau" ? null : edition} onClose={() => setEdition(null)} />}
+      {edition && <FormCahier groupe={groupe} entree={edition.entree} jour={edition.jour} onClose={() => setEdition(null)} />}
     </div>
   );
 }
 
-function FormCahier({ groupe, entree, onClose }: { groupe: Groupe; entree: EntreeCahier | null; onClose: () => void }) {
-  const [date, setDate] = useState(versInputDate(entree?.date ?? Date.now()));
+export function FormCahier({ groupe, entree, jour, onClose }: { groupe: Groupe | { nom: string }; entree: EntreeCahier | null; jour?: number; onClose: () => void }) {
+  const [date, setDate] = useState(versInputDate(entree?.date ?? jour ?? Date.now()));
   const [chapitre, setChapitre] = useState(entree?.chapitre ?? "");
   const [devoirs, setDevoirs] = useState(entree?.devoirs ?? "");
   const [pourLe, setPourLe] = useState(entree?.pourLe ? versInputDate(entree.pourLe) : "");
@@ -62,7 +91,7 @@ function FormCahier({ groupe, entree, onClose }: { groupe: Groupe; entree: Entre
           toast("Cahier de texte enregistré"); onClose();
         }}>Enregistrer</button></>}>
       <Field label="Date de la séance"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <Field label="Chapitre / ce qui a été fait"><textarea className="input" value={chapitre} onChange={(e) => setChapitre(e.target.value)} placeholder="ex. Suites numériques : raisonnement par récurrence" /></Field>
+      <Field label="Description brève de la séance"><textarea className="input" value={chapitre} onChange={(e) => setChapitre(e.target.value)} placeholder="ex. Suites numériques : raisonnement par récurrence, exercices 3 à 6" autoFocus /></Field>
       <Field label="Devoirs donnés"><textarea className="input" value={devoirs} onChange={(e) => setDevoirs(e.target.value)} placeholder="ex. Exercices 12 à 15 p. 84" /></Field>
       <Field label="Pour le"><input className="input" type="date" value={pourLe} onChange={(e) => setPourLe(e.target.value)} /></Field>
     </Modal>

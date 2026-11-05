@@ -419,3 +419,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-
 .parent { max-width: 720px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .parent-entete { display: flex; align-items: center; gap: 12px; color: #fff; padding: 16px; border-radius: var(--radius); }
 .parent-entete img { width: 52px; height: 52px; border-radius: 12px; background: #fff; object-fit: contain; padding: 3px; }
+.tableau tr.total td { font-weight: 700; border-top: 2px solid var(--border); }
+.tableau.compact th, .tableau.compact td { padding: 7px 8px; font-size: 13px; }
+.chips.defile { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.chips.defile .chip { flex-shrink: 0; }

@@ -46,10 +46,32 @@ export default function Statistiques() {
       return { e, n: s.length, presence: s.length ? Math.round(s.filter((x) => x.statut === "P" || x.statut === "R").length / s.length * 100) : 100 };
     }).filter((x) => x.n >= 3 && x.presence < 75).sort((a, b) => a.presence - b.presence).slice(0, 8);
 
-    return { paiements, parMois, total: parMois.reduce((a, b) => a + b, 0), donnees: donnees.length, heures, impayes, groupes, aSurveiller };
+    // Statistiques mensuelles par groupe (12 mois de l'année)
+    const nomsGroupes = [...d.groupes.map((g) => g.nom), ...(seances.some((s) => s.groupe === "Rattrapage") ? ["Rattrapage"] : [])];
+    const mensuel = (groupe: string, m: number) => {
+      const sm = seances.filter((s) => memeNom(s.groupe, groupe) && new Date(s.date).getMonth() === m);
+      const jours = new Map<string, number>();
+      sm.forEach((s) => jours.set(groupe === "Rattrapage" ? s.id : new Date(s.date).toDateString(), s.dureeHeures));
+      const pm = paiements.filter((p) => memeNom(groupeDuPaiement(d, p), groupe) && new Date(p.date).getMonth() === m);
+      const presents = sm.filter((s) => s.statut === "P" || s.statut === "R").length;
+      return {
+        seances: jours.size,
+        heures: Array.from(jours.values()).reduce((a, b) => a + b, 0),
+        presence: sm.length ? Math.round((presents / sm.length) * 100) : null,
+        absences: sm.filter((s) => s.statut === "A").length,
+        justifiees: sm.filter((s) => s.statut === "J").length,
+        encaisse: pm.reduce((a, p) => a + p.montant, 0),
+        nbPaiements: pm.length,
+        decrites: Array.from(new Set(sm.map((s) => new Date(s.date).toDateString())))
+          .filter((j) => d.cahier.some((c) => memeNom(c.groupe, groupe) && new Date(c.date).toDateString() === j && c.chapitre)).length,
+      };
+    };
+
+    return { paiements, parMois, total: parMois.reduce((a, b) => a + b, 0), donnees: donnees.length, heures, impayes, groupes, aSurveiller, nomsGroupes, mensuel };
   }, [d, annee]);
 
   const ceMois = annee === maintenant.getFullYear() ? stats.parMois[maintenant.getMonth()] : null;
+  const [mois, setMois] = useState(maintenant.getMonth());
 
   const exporter = () => {
     const lignes: (string | number)[][] = [["Mois", "Groupe", "Nombre de paiements", `Montant (${devise})`]];
@@ -60,6 +82,12 @@ export default function Statistiques() {
       parGroupe.forEach((v, g) => lignes.push([`${nomMois} ${annee}`, g, v.n, formatMontant(v.t)]));
     });
     lignes.push(["Total", "", stats.paiements.length, formatMontant(stats.total)]);
+    lignes.push([]);
+    lignes.push(["Mois", "Groupe", "Séances", "Heures", "Présence (%)", "Absences", "Absences justifiées", "Séances décrites", `Encaissé (${devise})`]);
+    MOIS.forEach((nomMois, m) => stats.nomsGroupes.forEach((g) => {
+      const x = stats.mensuel(g, m);
+      if (x.seances || x.encaisse) lignes.push([`${nomMois} ${annee}`, g, x.seances, x.heures, x.presence ?? "", x.absences, x.justifiees, x.decrites, formatMontant(x.encaisse)]);
+    }));
     telecharger(`Recettes_${annee}.csv`, versCsv(lignes), "text/csv;charset=utf-8");
   };
 
@@ -87,7 +115,62 @@ export default function Statistiques() {
       </div>
       <Barres valeurs={stats.parMois} devise={devise} moisCourant={annee === maintenant.getFullYear() ? maintenant.getMonth() : -1} />
 
-      <div className="section-title"><h2>Par groupe</h2></div>
+      <div className="section-title"><h2>Par groupe — mois de {MOIS[mois].toLowerCase().replace(".", "")} {annee}</h2></div>
+      <div className="chips defile" style={{ marginBottom: 10 }}>
+        {MOIS.map((m, i) => <button key={m} className={`chip ${mois === i ? "on" : ""}`} onClick={() => setMois(i)}>{m}</button>)}
+      </div>
+      <div className="card" style={{ overflowX: "auto" }}>
+        <table className="tableau">
+          <thead><tr><th>Groupe</th><th>Séances</th><th>Heures</th><th>Présence</th><th>Absences</th><th>Décrites</th><th>Encaissé</th></tr></thead>
+          <tbody>
+            {stats.nomsGroupes.map((g) => {
+              const x = stats.mensuel(g, mois);
+              return (
+                <tr key={g}>
+                  <td className="bold">{g}</td>
+                  <td>{x.seances}</td>
+                  <td>{x.heures.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} h</td>
+                  <td>{x.presence === null ? "—" : `${x.presence} %`}</td>
+                  <td>{x.absences}{x.justifiees ? ` (+${x.justifiees} J)` : ""}</td>
+                  <td style={x.seances && x.decrites < x.seances ? { color: "var(--orange)" } : undefined}>{x.seances ? `${x.decrites}/${x.seances}` : "—"}</td>
+                  <td>{formatMontant(x.encaisse)} {devise}{x.nbPaiements ? <span className="tiny muted"> ({x.nbPaiements})</span> : null}</td>
+                </tr>
+              );
+            })}
+            {(() => {
+              const t = stats.nomsGroupes.map((g) => stats.mensuel(g, mois));
+              return (
+                <tr className="total">
+                  <td>Total</td>
+                  <td>{t.reduce((a, x) => a + x.seances, 0)}</td>
+                  <td>{t.reduce((a, x) => a + x.heures, 0).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} h</td>
+                  <td></td>
+                  <td>{t.reduce((a, x) => a + x.absences, 0)}</td>
+                  <td></td>
+                  <td>{formatMontant(t.reduce((a, x) => a + x.encaisse, 0))} {devise}</td>
+                </tr>
+              );
+            })()}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="section-title"><h2>Recettes par groupe et par mois ({annee})</h2></div>
+      <div className="card" style={{ overflowX: "auto" }}>
+        <table className="tableau compact">
+          <thead><tr><th>Groupe</th>{MOIS.map((m) => <th key={m}>{m}</th>)}<th>Total</th></tr></thead>
+          <tbody>
+            {stats.nomsGroupes.filter((g) => g !== "Rattrapage").map((g) => {
+              const v = MOIS.map((_, i) => stats.mensuel(g, i).encaisse);
+              return <tr key={g}><td className="bold">{g}</td>{v.map((x, i) => <td key={i} className={x ? "" : "muted"}>{x ? formatMontant(x) : "—"}</td>)}<td className="bold">{formatMontant(v.reduce((a, b) => a + b, 0))}</td></tr>;
+            })}
+            <tr className="total"><td>Total</td>{stats.parMois.map((x, i) => <td key={i}>{x ? formatMontant(x) : "—"}</td>)}<td>{formatMontant(stats.total)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="tiny muted" style={{ marginTop: 4 }}>Montants en {devise}, paiements encaissés.</div>
+
+      <div className="section-title"><h2>Par groupe — année {annee}</h2></div>
       <div className="card" style={{ overflowX: "auto" }}>
         <table className="tableau">
           <thead><tr><th>Groupe</th><th>Élèves</th><th>Encaissé {annee}</th><th>Reste dû</th><th>Présence</th><th>Moyenne</th></tr></thead>

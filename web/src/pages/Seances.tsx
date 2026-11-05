@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock, LockOpen } from "lucide-react";
+import { BookOpen, CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock, LockOpen } from "lucide-react";
 import { actions, appelDuJour, etatAppel, prochainesSeances, rattrapagesDuJour, seancesDuJour, useDonnees } from "../store";
 import type { Seance, Statut } from "../types";
 import { DemandeCode, Modal, Vide, toast } from "../components";
 import Semaine from "./Semaine";
+import { FormCahier, cahierDuJour } from "./Pedagogie";
 import { notifierAbsences, notifierPaiementsAttendus } from "../notifier";
 import { dureeEntre, formatDate, formatDateLongue, formatJourCourt, heureDe } from "../utils";
 
@@ -178,8 +179,8 @@ function Appel() {
               ))}
             </div>
             <div className="card pad stack" style={{ gap: 8 }}>
-              <div className="small bold muted">Cahier de texte (facultatif)</div>
-              <input className="input" value={chapitre} onChange={(e) => setChapitre(e.target.value)} placeholder="Chapitre / ce qui a été fait aujourd'hui" />
+              <div className="small bold muted">Cahier de texte</div>
+              <input className="input" value={chapitre} onChange={(e) => setChapitre(e.target.value)} placeholder="Description brève de la séance (ce qui a été fait)" />
               <input className="input" value={devoirs} onChange={(e) => setDevoirs(e.target.value)} placeholder="Devoirs donnés pour la prochaine séance" />
             </div>
             <button className="btn block" style={{ padding: 14 }} onClick={() => {
@@ -218,6 +219,7 @@ function Historique() {
   const [q, setQ] = useState("");
   const [aDeverrouiller, setADeverrouiller] = useState<string | null>(null);
   const [ouverte, setOuverte] = useState<string | null>(null);
+  const [cahier, setCahier] = useState<{ groupe: string; jour: number } | null>(null);
 
   // Une "séance" = un groupe un jour donné (les rattrapages sont regroupés par jour)
   const seancesGroupees = (() => {
@@ -257,6 +259,19 @@ function Historique() {
                   {x.liste.filter((s) => s.statut !== "P").map((s) => `${s.nomEleve} (${s.statut})`).join(", ")}
                 </span>
               </div>
+              {x.groupe !== "Rattrapage" && (() => {
+                const c = cahierDuJour(d.cahier, x.groupe, x.date);
+                return (
+                  <div className="row small" style={{ gap: 6, alignItems: "flex-start" }}>
+                    <BookOpen size={15} className="muted" style={{ flexShrink: 0, marginTop: 2 }} />
+                    <div className="grow">
+                      {c?.chapitre ? c.chapitre : <span className="muted">Pas de description</span>}
+                      {c?.devoirs && <div className="tiny muted">Devoirs : {c.devoirs}</div>}
+                    </div>
+                    <button className="btn ghost small" onClick={() => setCahier({ groupe: x.groupe, jour: x.date })}>{c ? "Modifier" : "Décrire"}</button>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -270,6 +285,7 @@ function Historique() {
           onClose={() => setADeverrouiller(null)}
         />
       )}
+      {cahier && <FormCahier groupe={{ nom: cahier.groupe }} entree={cahierDuJour(d.cahier, cahier.groupe, cahier.jour) ?? null} jour={cahier.jour} onClose={() => setCahier(null)} />}
       {enCours && <CorrigerSeance liste={enCours.liste} titre={`${enCours.groupe || "Séance"} — ${formatDate(enCours.date)}`} onClose={() => setOuverte(null)} />}
     </>
   );
