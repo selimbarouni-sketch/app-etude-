@@ -131,6 +131,8 @@ export interface Seance {
   commentaire: string;
   nomEleve: string;
   groupe: string;
+  /** Date de la dernière correction (séance déverrouillée avec le code) */
+  modifieLe?: number;
 }
 
 export interface Paiement {

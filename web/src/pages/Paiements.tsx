@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { BellRing, Download, FileText, Hourglass, MessageCircle, MessageSquare, Share2, Wallet } from "lucide-react";
 import { actions, destinataires, groupeDuPaiement, prixSeance, useDonnees } from "../store";
 import type { Eleve, Paiement } from "../types";
-import { Confirmation, Field, Modal, Vide, toast } from "../components";
+import { Confirmation, DemandeCode, Field, Modal, Vide, toast } from "../components";
 import { MODES_PAIEMENT, estAujourdhui, formatDate, formatMontant, initiales, libelleCycle, lienSms, lienWhatsapp, lireNombre, remplirModele } from "../utils";
 
 const SANS_GROUPE = "Sans groupe";
@@ -19,6 +19,8 @@ export default function Paiements() {
   const [payer, setPayer] = useState<Eleve | null>(null);
   const [aSupprimer, setASupprimer] = useState<Paiement | null>(null);
   const [aModifier, setAModifier] = useState<Paiement | null>(null);
+  // Un versement enregistré est verrouillé : le code d'accès est demandé pour le modifier ou l'annuler
+  const [aDeverrouiller, setADeverrouiller] = useState<Paiement | null>(null);
   const [recu, setRecu] = useState<Paiement | null>(null);
   const [onglet, setOnglet] = useState<"encaisser" | "historique">("encaisser");
 
@@ -126,8 +128,9 @@ export default function Paiements() {
             <Vide icone={<Wallet size={48} />} texte="Aucun paiement pour ce groupe." />
           ) : (
             <div className="list">
+              <div className="tiny muted">🔒 Versements verrouillés : touchez-en un pour le modifier ou l'annuler (code d'accès).</div>
               {paiementsGroupe.map((p) => (
-                <div key={p.id} className="card item clickable" onClick={() => setAModifier(p)}>
+                <div key={p.id} className="card item clickable" onClick={() => setADeverrouiller(p)} title="Déverrouiller pour modifier (code d'accès)">
                   <div className="grow">
                     <div className="bold ellipsis">{p.nomEleve}</div>
                     <div className="small">Payé le <b>{formatDate(p.date)}</b> · <b>{p.nbSeancesReglees} séance{p.nbSeancesReglees > 1 ? "s" : ""}</b> · {p.modePaiement}</div>
@@ -148,6 +151,15 @@ export default function Paiements() {
         </>
       )}
 
+      {aDeverrouiller && (
+        <DemandeCode
+          titre="Déverrouiller ce versement ?"
+          message={`${aDeverrouiller.nomEleve} — ${formatMontant(aDeverrouiller.montant)} ${devise} du ${formatDate(aDeverrouiller.date)}. Saisissez le code d'accès pour le modifier ou l'annuler.`}
+          libelle="Déverrouiller"
+          onValide={() => setAModifier(aDeverrouiller)}
+          onClose={() => setADeverrouiller(null)}
+        />
+      )}
       {payer && <FormPaiement eleve={payer} onClose={() => setPayer(null)} onCree={setRecu} />}
       {recu && <EnvoiRecu paiementId={recu.id} onClose={() => setRecu(null)} />}
       {aModifier && (
