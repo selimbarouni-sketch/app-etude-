@@ -326,6 +326,32 @@ export const actions = {
     }));
     return atteints;
   },
+  /**
+   * Correction d'une séance passée (déverrouillée avec le code d'accès) :
+   * change le statut de chaque élève et recalcule les compteurs de séances à payer.
+   */
+  modifierStatuts(changements: Record<string, Statut>) {
+    maj((d) => {
+      const delta = new Map<string, number>();
+      const seances = d.seances.map((s) => {
+        const nouveau = changements[s.id];
+        if (!nouveau || nouveau === s.statut) return s;
+        const nonCompte = s.groupe === "Rattrapage" && s.commentaire.includes("non compté");
+        const avant = !nonCompte && compte(s.statut) ? 1 : 0;
+        const apres = !nonCompte && compte(nouveau) ? 1 : 0;
+        if (apres !== avant) delta.set(s.eleveId, (delta.get(s.eleveId) ?? 0) + apres - avant);
+        return { ...s, statut: nouveau, modifieLe: Date.now() };
+      });
+      return {
+        ...d,
+        seances,
+        eleves: d.eleves.map((e) => {
+          const n = delta.get(e.id) ?? 0;
+          return n ? { ...e, sessionsInCurrentCycle: e.sessionsInCurrentCycle + n, totalSeancesRealisees: Math.max(0, e.totalSeancesRealisees + n) } : e;
+        }),
+      };
+    });
+  },
   /** Correction le jour même : supprime l'appel d'un groupe (les compteurs sont rétablis) pour le refaire. */
   annulerAppel(groupe: string, jour: number) {
     maj((d) => {

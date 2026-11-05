@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock } from "lucide-react";
+import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock, LockOpen } from "lucide-react";
 import { actions, appelDuJour, etatAppel, prochainesSeances, rattrapagesDuJour, seancesDuJour, useDonnees } from "../store";
-import type { Statut } from "../types";
-import { DemandeCode, Vide, toast } from "../components";
+import type { Seance, Statut } from "../types";
+import { DemandeCode, Modal, Vide, toast } from "../components";
 import Semaine from "./Semaine";
 import { notifierAbsences, notifierPaiementsAttendus } from "../notifier";
-import { dureeEntre, formatDate, formatDateLongue, formatDuree, formatJourCourt, heureDe } from "../utils";
+import { dureeEntre, formatDate, formatDateLongue, formatJourCourt, heureDe } from "../utils";
 
 const LIBELLES: Record<Statut, string> = { P: "Présent", A: "Absent", R: "Retard", J: "Absence justifiée" };
 const COULEURS: Record<Statut, string> = { P: "green", A: "red", R: "orange", J: "blue" };
@@ -209,30 +209,98 @@ function Appel() {
 }
 
 /** Historique en lecture seule : les séances passées ne peuvent plus être modifiées. */
+/**
+ * Historique : séances regroupées par groupe et par jour, verrouillées.
+ * Une séance peut être déverrouillée avec le code d'accès pour corriger les présences.
+ */
 function Historique() {
   const d = useDonnees();
   const [q, setQ] = useState("");
-  const liste = [...d.seances]
-    .sort((a, b) => b.date - a.date)
-    .filter((s) => !q || (s.nomEleve + " " + s.groupe).toLowerCase().includes(q.toLowerCase()));
+  const [aDeverrouiller, setADeverrouiller] = useState<string | null>(null);
+  const [ouverte, setOuverte] = useState<string | null>(null);
+
+  // Une "séance" = un groupe un jour donné (les rattrapages sont regroupés par jour)
+  const seancesGroupees = (() => {
+    const m = new Map<string, Seance[]>();
+    [...d.seances].sort((a, b) => b.date - a.date).forEach((s) => {
+      const cle = `${s.groupe}|${new Date(s.date).toDateString()}`;
+      m.set(cle, [...(m.get(cle) ?? []), s]);
+    });
+    return Array.from(m.entries()).map(([cle, liste]) => ({ cle, groupe: liste[0].groupe, date: liste[0].date, heure: liste[0].heure, liste }));
+  })().filter((x) => !q || (x.groupe + " " + x.liste.map((s) => s.nomEleve).join(" ")).toLowerCase().includes(q.toLowerCase()));
 
   if (d.seances.length === 0) return <Vide icone={<ClipboardList size={48} />} texte="Aucune séance enregistrée." />;
+  const enCours = seancesGroupees.find((x) => x.cle === ouverte);
   return (
     <>
-      <div className="row small muted" style={{ marginBottom: 8, gap: 6 }}><Lock size={14} />Historique verrouillé : les séances passées ne peuvent plus être modifiées.</div>
-      <input className="input" placeholder="Filtrer par élève ou groupe…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 12 }} />
+      <div className="row small muted" style={{ marginBottom: 8, gap: 6 }}><Lock size={14} />Séances verrouillées. « Déverrouiller » (code d'accès) permet de corriger les présences.</div>
+      <input className="input" placeholder="Filtrer par groupe ou élève…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 12 }} />
       <div className="list">
-        {liste.slice(0, 300).map((s) => (
-          <div key={s.id} className="card item">
-            <div className="grow">
-              <div className="bold ellipsis">{s.nomEleve}</div>
-              <div className="small muted">{formatDate(s.date)} à {s.heure} · {formatDuree(s.dureeHeures)} h{s.groupe && ` · ${s.groupe}`}</div>
+        {seancesGroupees.slice(0, 200).map((x) => {
+          const nb = (st: Statut) => x.liste.filter((s) => s.statut === st).length;
+          const corrigee = x.liste.some((s) => s.modifieLe);
+          return (
+            <div key={x.cle} className="card pad stack" style={{ gap: 6 }}>
+              <div className="row">
+                <div className="grow">
+                  <div className="bold ellipsis">{x.groupe || "Sans groupe"}</div>
+                  <div className="small muted">{formatDate(x.date)} à {x.heure}{corrigee && " · corrigée"}</div>
+                </div>
+                <button className="btn ghost small" onClick={() => setADeverrouiller(x.cle)}><LockOpen size={15} />Déverrouiller</button>
+              </div>
+              <div className="row wrap" style={{ gap: 4 }}>
+                <span className="badge green">P {nb("P")}</span>
+                {nb("A") > 0 && <span className="badge red">A {nb("A")}</span>}
+                {nb("R") > 0 && <span className="badge orange">R {nb("R")}</span>}
+                {nb("J") > 0 && <span className="badge blue">J {nb("J")}</span>}
+                <span className="tiny muted grow ellipsis" style={{ alignSelf: "center" }}>
+                  {x.liste.filter((s) => s.statut !== "P").map((s) => `${s.nomEleve} (${s.statut})`).join(", ")}
+                </span>
+              </div>
             </div>
-            <span className={`badge ${COULEURS[s.statut]}`}>{LIBELLES[s.statut]}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
+      {aDeverrouiller && (
+        <DemandeCode
+          titre="Déverrouiller cette séance ?"
+          message="Saisissez le code d'accès pour corriger les présences de cette séance. Les compteurs de séances à payer seront recalculés."
+          libelle="Déverrouiller"
+          onValide={() => setOuverte(aDeverrouiller)}
+          onClose={() => setADeverrouiller(null)}
+        />
+      )}
+      {enCours && <CorrigerSeance liste={enCours.liste} titre={`${enCours.groupe || "Séance"} — ${formatDate(enCours.date)}`} onClose={() => setOuverte(null)} />}
     </>
+  );
+}
+
+/** Séance déverrouillée : modification des présences élève par élève. */
+function CorrigerSeance({ liste, titre, onClose }: { liste: Seance[]; titre: string; onClose: () => void }) {
+  const [statuts, setStatuts] = useState<Record<string, Statut>>(() => Object.fromEntries(liste.map((s) => [s.id, s.statut])));
+  const changements = Object.fromEntries(Object.entries(statuts).filter(([id, st]) => liste.find((s) => s.id === id)?.statut !== st));
+  const nbChangements = Object.keys(changements).length;
+  return (
+    <Modal titre={titre} onClose={onClose}
+      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
+        <button className="btn" disabled={!nbChangements} onClick={() => {
+          actions.modifierStatuts(changements);
+          toast(`${nbChangements} présence(s) corrigée(s), séance reverrouillée`);
+          onClose();
+        }}><Lock size={16} />Enregistrer et reverrouiller</button></>}>
+      <div className="alert blue small"><LockOpen size={18} /><div>Séance déverrouillée. Elle sera reverrouillée à l'enregistrement.</div></div>
+      {liste.map((s) => (
+        <div key={s.id} className="row">
+          <span className="grow">{s.nomEleve}{statuts[s.id] !== s.statut && <span className="tiny" style={{ color: "var(--orange)" }}> · modifié</span>}</span>
+          <div className="statut-group">
+            {(["P", "A", "R", "J"] as Statut[]).map((x) => (
+              <button key={x} title={LIBELLES[x]} className={`statut-btn ${x} ${statuts[s.id] === x ? "on" : ""}`} onClick={() => setStatuts({ ...statuts, [s.id]: x })}>{x}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="tiny muted">P présent · A absent · R retard · J absence justifiée (non comptée)</div>
+    </Modal>
   );
 }
 
