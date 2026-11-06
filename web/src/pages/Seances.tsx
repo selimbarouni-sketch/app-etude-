@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarCheck, CheckCircle2, ClipboardList, Clock, History, Lock, LockOpen, Plus } from "lucide-react";
+import { CalendarCheck, CheckCircle2, ClipboardList, Clock, Lock, LockOpen, Plus } from "lucide-react";
 import { actions, appelDuJour, etatAppel, prochainesSeances, rattrapagesDuJour, seancesDuJour, useDonnees } from "../store";
 import type { Seance, Statut } from "../types";
 import { DemandeCode, Modal, Vide, toast } from "../components";
@@ -319,7 +319,8 @@ function Historique({ onOuvrirAncienne }: { onOuvrirAncienne?: () => void } = {}
 
       {enCours && (
         <ModalCorrection
-          seances={enCours.liste}
+          titre={`Présences : ${enCours.groupe} (${formatDate(enCours.date)})`}
+          liste={enCours.liste}
           onClose={() => setOuverte(null)}
         />
       )}
@@ -327,43 +328,28 @@ function Historique({ onOuvrirAncienne }: { onOuvrirAncienne?: () => void } = {}
   );
 }
 
-function ModalCorrection({ seances, onClose }: { seances: Seance[]; onClose: () => void }) {
-  const [modifs, setModifs] = useState<Record<string, Statut>>(() => {
-    const m: Record<string, Statut> = {};
-    seances.forEach((s) => { m[s.id] = s.statut; });
-    return m;
-  });
-  const nbModifs = seances.filter((s) => modifs[s.id] !== s.statut).length;
-
+/** Boîte de dialogue de correction des présences (après déverrouillage). */
+function ModalCorrection({ titre, liste, onClose }: { titre: string; liste: Seance[]; onClose: () => void }) {
+  const [statuts, setStatuts] = useState<Record<string, Statut>>(() =>
+    Object.fromEntries(liste.map((s) => [s.id, s.statut]))
+  );
+  const changements = Object.fromEntries(Object.entries(statuts).filter(([id, st]) => liste.find((s) => s.id === id)?.statut !== st));
+  const nbChangements = Object.keys(changements).length;
   return (
-    <Modal titre="Corriger les présences" onClose={onClose}
-      actions={
-        <>
-          <button className="btn ghost" onClick={onClose}>Annuler</button>
-          <button className="btn" disabled={nbModifs === 0} onClick={() => {
-            actions.modifierStatuts(modifs);
-            toast(`${nbModifs} présence(s) corrigée(s), séance reverrouillée`);
-            onClose();
-          }}>
-            <Lock size={16} />Enregistrer et reverrouiller
-          </button>
-        </>
-      }>
-      <div className="alert blue small">
-        <Clock size={18} />
-        <div>Séance déverrouillée. Elle sera reverrouillée à l'enregistrement.</div>
-      </div>
-      {seances.map((s) => (
+    <Modal titre={titre} onClose={onClose}
+      footer={<><button className="btn secondary" onClick={onClose}>Annuler</button>
+        <button className="btn" disabled={!nbChangements} onClick={() => {
+          actions.modifierStatuts(changements);
+          toast(`${nbChangements} présence(s) corrigée(s), séance reverrouillée`);
+          onClose();
+        }}><Lock size={16} />Enregistrer et reverrouiller</button></>}>
+      <div className="alert blue small"><LockOpen size={18} /><div>Séance déverrouillée. Elle sera reverrouillée à l'enregistrement.</div></div>
+      {liste.map((s) => (
         <div key={s.id} className="row">
-          <span className="grow">
-            {s.nomEleve}
-            {modifs[s.id] !== s.statut && <span className="tiny" style={{ color: "var(--orange)" }}> · modifié</span>}
-          </span>
+          <span className="grow">{s.nomEleve}{statuts[s.id] !== s.statut && <span className="tiny" style={{ color: "var(--orange)" }}> · modifié</span>}</span>
           <div className="statut-group">
-            {(["P", "A", "R", "J"] as Statut[]).map((c) => (
-              <button key={c} title={LIBELLES[c]}
-                className={`statut-btn ${c} ${modifs[s.id] === c ? "on" : ""}`}
-                onClick={() => setModifs({ ...modifs, [s.id]: c })}>{c}</button>
+            {(["P", "A", "R", "J"] as Statut[]).map((x) => (
+              <button key={x} title={LIBELLES[x]} className={`statut-btn ${x} ${statuts[s.id] === x ? "on" : ""}`} onClick={() => setStatuts({ ...statuts, [s.id]: x })}>{x}</button>
             ))}
           </div>
         </div>
@@ -373,26 +359,25 @@ function ModalCorrection({ seances, onClose }: { seances: Seance[]; onClose: () 
   );
 }
 
+/** Rattrapages individuels prévus aujourd'hui : appel élève par élève. */
 function RattrapagesDuJour({ maintenant }: { maintenant: number }) {
   const d = useDonnees();
-  const rats = rattrapagesDuJour(d, maintenant);
+  const liste = rattrapagesDuJour(d, maintenant);
   const [statuts, setStatuts] = useState<Record<string, Statut>>({});
-
-  if (!rats.length) return null;
-
+  if (!liste.length) return null;
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="small bold muted">Rattrapages d'aujourd'hui</div>
-      {rats.map((r) => {
-        const el = d.eleves.find((e) => e.id === r.eleveId);
-        if (!el) return null;
+      {liste.map((r) => {
+        const e = d.eleves.find((x) => x.id === r.eleveId);
+        if (!e) return null;
         const st = statuts[r.id] ?? "P";
         const ouvert = maintenant >= r.debut - 30 * 60_000;
         return (
           <div key={r.id} className="card item">
             <span className="badge blue">{r.heureDebut}</span>
             <div className="grow">
-              <div className="bold ellipsis">{el.prenom} {el.nom}</div>
+              <div className="bold ellipsis">{e.prenom} {e.nom}</div>
               <div className="tiny muted">
                 Rattrapage {r.heureDebut}–{r.heureFin}
                 {r.motif && ` · ${r.motif}`}
